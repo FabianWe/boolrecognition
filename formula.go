@@ -48,7 +48,7 @@ func (c Clause) String() string {
 	buffer := new(bytes.Buffer)
 	switch len(c) {
 	case 0:
-		buffer.WriteString("∅")
+		buffer.WriteRune('∅')
 	case 1:
 		fmt.Fprintf(buffer, "{%d}", c[0])
 	default:
@@ -76,7 +76,7 @@ func (phi ClauseSet) String() string {
 	buffer := new(bytes.Buffer)
 	switch len(phi) {
 	case 0:
-		buffer.WriteString("∅")
+		buffer.WriteRune('∅')
 	case 1:
 		fmt.Fprintf(buffer, "{ %s }", phi[0])
 	default:
