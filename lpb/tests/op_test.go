@@ -12,10 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package test
+package tests
 
-import "testing"
-import "github.com/FabianWe/boolrecognition/lpb"
+import (
+	"sort"
+	"testing"
+
+	"github.com/FabianWe/boolrecognition/lpb"
+)
 
 // TestOPSmaus tests Example 6.4 of Smaus' paper.
 func TestOPSmaus(t *testing.T) {
@@ -82,5 +86,100 @@ func TestOPWenzelmann(t *testing.T) {
 			t.Errorf("Error comparing OP%d and OP%d: expected %d, got %d",
 				tt.first.Variable, tt.second.Variable, tt.expected, actual)
 		}
+	}
+}
+
+const size int = 100000
+
+var mySlice []int = make([]int, size)
+var myMap map[int]struct{} = make(map[int]struct{}, size)
+
+func init() {
+	for i := 0; i < size; i++ {
+		mySlice = append(mySlice, i)
+		myMap[i] = struct{}{}
+	}
+}
+
+func BenchmarkAddSlice(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		s := make([]int, size)
+		for i := 0; i < size; i++ {
+			s = append(s, i)
+		}
+	}
+}
+
+func BenchmarkAddMap(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		m := make(map[int]struct{}, size)
+		for i := 0; i < size; i++ {
+			m[i] = struct{}{}
+		}
+	}
+}
+
+// Just some benchmarks on how to implement DNFs, wrong place but
+// they're there just if you're curious
+var x bool
+
+func containsSlice() {
+	half := size / 2
+	end := size + half
+	for i := half; i < end; i++ {
+		index := sort.SearchInts(mySlice, i)
+		x = index < len(mySlice)
+	}
+}
+
+func containsMap() {
+	half := size / 2
+	end := size + half
+	for i := half; i < end; i++ {
+		_, contains := myMap[i]
+		x = contains
+	}
+}
+
+func binSearch(s []int, val int) bool {
+	l, r := 0, len(s)-1
+	for l <= r {
+		m := l + (r-l)/2
+		nxt := s[m]
+		if nxt == val {
+			return true
+		}
+		if nxt < val {
+			l = m + 1
+		} else {
+			r = m - 1
+		}
+	}
+	return false
+}
+
+func containsBinSearch() {
+	half := size / 2
+	end := size + half
+	for i := half; i < end; i++ {
+		x = binSearch(mySlice, i)
+	}
+}
+
+func BenchmarkLookupSlice(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		containsSlice()
+	}
+}
+
+func BenchmarkLookupMap(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		containsMap()
+	}
+}
+
+func BenchmarkBinSearch(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		containsBinSearch()
 	}
 }

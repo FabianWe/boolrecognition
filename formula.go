@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 
 	"github.com/FabianWe/dimacscnf"
@@ -42,6 +43,11 @@ type Clause []int
 // slice big enough to hold initialCapacity variables.
 func NewClause(initialCapacity int) Clause {
 	return make([]int, 0, initialCapacity)
+}
+
+// Sort sorts the variables in the clause in increasin order.
+func (c Clause) Sort() {
+	sort.Ints(c)
 }
 
 func (c Clause) String() string {
@@ -117,6 +123,10 @@ func (h *positiveDimacsParser) NewVariable(value int) error {
 	// check if value is positive, only positive values are allowed
 	if value <= 0 {
 		return fmt.Errorf("Illegal variable %d: Must be positive", value)
+	}
+	// check if variable is allowed, i.e. <= then nbvar
+	if value > h.nbvar {
+		return fmt.Errorf("nbvar was set to %d, but found variable %d", h.nbvar, value)
 	}
 	i := len(h.clauses)
 	// add value - 1, we identify all variables with ints starting with 0

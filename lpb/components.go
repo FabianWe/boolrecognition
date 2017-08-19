@@ -22,12 +22,171 @@ import (
 	"strings"
 )
 
+// LPBCoeff is the type used for integers in an LPB, i.e. for coefficients and
+// the threshold.
+//
+// There are to reasons (I see) not to use ints directly:
+// 1. We can change the type to a float or something else if needed be
+// 2. We need ∞ and -∞ later, this is not directly possible with an int
+// so we kind of wrap this type around ints.
+// Important note: LPBCoeff is intended to be positive always. We will use
+// negative values to indicate ∞ and -∞ (see constants later).
+//
+// If you want to print them nicely (for example with Printf) don't use %d
+// as a specifier but %s, the String() method will format it correctly.
+//
+// Also you can still use some int methods like +, but if one of the values
+// is ∞ or -∞ this will not give you what you want. Use Add(), Sub() and
+// Mult() instead.
+type LPBCoeff int
+
+const (
+	PositiveInfinity LPBCoeff = LPBCoeff(-1) // Value for ∞
+	NegativeInfinity LPBCoeff = LPBCoeff(-2) // Value for -∞
+)
+
+func (val LPBCoeff) String() string {
+	switch val {
+	case NegativeInfinity:
+		return "-∞"
+	case PositiveInfinity:
+		return "∞"
+	default:
+		return strconv.Itoa(int(val))
+	}
+}
+
+// Add adds two LPBCoeff elements and returns the sum.
+// If val1 one is ∞ or -∞ this value is returned, otherwise if it is a
+// number the sum will be returned (if val2 is ∞ or -∞ this value gets
+// returned as well).
+func (val1 LPBCoeff) Add(val2 LPBCoeff) LPBCoeff {
+	switch val1 {
+	case NegativeInfinity:
+		return NegativeInfinity
+	case PositiveInfinity:
+		return PositiveInfinity
+	default:
+		switch val2 {
+		case NegativeInfinity:
+			return NegativeInfinity
+		case PositiveInfinity:
+			return PositiveInfinity
+		default:
+			return val1 + val2
+		}
+	}
+}
+
+// Sub computes val1 - val2.
+// If neither is ∞ or -∞ it returns val1 - val2. If val1 is ∞ or -∞ this
+// value is returned.
+// If val1 is a number and val2 is ∞ it returns -∞, if val2 is -∞ it returns ∞.
+// It will however not test if the result is still positive! So check this first
+// if you are not sure.
+func (val1 LPBCoeff) Sub(val2 LPBCoeff) LPBCoeff {
+	switch val1 {
+	case NegativeInfinity:
+		return NegativeInfinity
+	case PositiveInfinity:
+		return PositiveInfinity
+	default:
+		switch val2 {
+		case NegativeInfinity:
+			return PositiveInfinity
+		case PositiveInfinity:
+			return NegativeInfinity
+		default:
+			return val1 - val2
+		}
+	}
+}
+
+// Mult computes val1 * val2.
+// If either of the value is ∞ or -∞ this value is returned.
+func (val1 LPBCoeff) Mult(val2 LPBCoeff) LPBCoeff {
+	switch val1 {
+	case NegativeInfinity:
+		return NegativeInfinity
+	case PositiveInfinity:
+		return PositiveInfinity
+	default:
+		switch val2 {
+		case PositiveInfinity:
+			return PositiveInfinity
+		case NegativeInfinity:
+			return NegativeInfinity
+		default:
+			return val1 * val2
+		}
+	}
+}
+
+// Compare compares two values and returns 0 iff val1 = val2, -1 iff
+// val1 < val2 and 1 iff val1 > val2.
+//
+// ∞ and -∞ are handled in the following way:
+// ∞ = ∞ and -∞ = -∞.
+// No value is greater than ∞ and no value is smaller than -∞.
+func (val1 LPBCoeff) Compare(val2 LPBCoeff) int {
+	switch val1 {
+	case NegativeInfinity:
+		if val2 == NegativeInfinity {
+			return 0
+		} else {
+			return -1
+		}
+	case PositiveInfinity:
+		if val2 == PositiveInfinity {
+			return 0
+		} else {
+			return 1
+		}
+	default:
+		switch val2 {
+		case NegativeInfinity:
+			return 1
+		case PositiveInfinity:
+			return -1
+		default:
+			switch {
+			case val1 == val2:
+				return 0
+			case val1 < val2:
+				return -1
+			default:
+				// val1 > val2
+				return 1
+			}
+		}
+	}
+}
+
+// Equals returns true iff val1 == val2.
+// This is the case iff val1.Compare(val2) == 0.
+func (val1 LPBCoeff) Equals(val2 LPBCoeff) bool {
+	// well that's easy...
+	return val1 == val2
+}
+
+// Less returns true iff val1 < val2.
+// This is the case iff val.Compare(val2) < 0.
+func (val1 LPBCoeff) Less(val2 LPBCoeff) bool {
+	return val1.Compare(val2) < 0
+}
+
+// Greater returns true iff val1 > val2.
+// This is the case iff val1.Compare(val2) > 0.
+func (val1 LPBCoeff) Greater(val2 LPBCoeff) bool {
+	return val1.Compare(val2) > 0
+}
+
 // LPB represents an LPB of the form a_1 ⋅ x_1 + ... + a_n ⋅ x_n ≥ d
 // Each of the coefficients a_i must be a natural number (positive integer).
 // d can be any integer.
 type LPB struct {
-	Threshold    int
-	Coefficients []int
+	Threshold    LPBCoeff
+	Coefficients []LPBCoeff
 }
 
 // EmptyLPB creates a new LPB with the threshold set to -1 and an empty
@@ -37,7 +196,7 @@ func EmptyLPB() *LPB {
 }
 
 // NewLPB creates a new LPB with the given threshold and coefficients.
-func NewLPB(threshold int, coefficients []int) *LPB {
+func NewLPB(threshold LPBCoeff, coefficients []LPBCoeff) *LPB {
 	return &LPB{Threshold: threshold,
 		Coefficients: coefficients}
 }
@@ -59,7 +218,7 @@ func ParseLPB(str string) (*LPB, error) {
 	if err != nil {
 		return nil, err
 	}
-	coefficients := make([]int, len(split)-1)
+	coefficients := make([]LPBCoeff, len(split)-1)
 	for i, strVal := range split[:len(split)-1] {
 		if val, parseErr := strconv.Atoi(strVal); parseErr == nil {
 			// no parse error, check if value is positive
@@ -67,14 +226,14 @@ func ParseLPB(str string) (*LPB, error) {
 				return nil, fmt.Errorf("LPB coefficients must be positive, got %d", val)
 			}
 			// it's okay, append it to the coefficients
-			coefficients[i] = val
+			coefficients[i] = LPBCoeff(val)
 		} else {
 			// parsing error
 			return nil, parseErr
 		}
 	}
 	// everything done, return result
-	return NewLPB(threshold, coefficients), nil
+	return NewLPB(LPBCoeff(threshold), coefficients), nil
 }
 
 func (lpb *LPB) String() string {
@@ -83,11 +242,11 @@ func (lpb *LPB) String() string {
 	case 0:
 		buffer.WriteRune('0')
 	default:
-		fmt.Fprintf(buffer, "%d⋅x1", lpb.Coefficients[0])
+		fmt.Fprintf(buffer, "%s⋅x1", lpb.Coefficients[0])
 		for i, c := range lpb.Coefficients[1:] {
-			fmt.Fprintf(buffer, " + %d⋅x%d", c, i+2)
+			fmt.Fprintf(buffer, " + %s⋅x%d", c, i+2)
 		}
 	}
-	fmt.Fprintf(buffer, " ≥ %d", lpb.Threshold)
+	fmt.Fprintf(buffer, " ≥ %s", lpb.Threshold)
 	return buffer.String()
 }

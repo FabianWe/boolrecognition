@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+
+	br "github.com/FabianWe/boolrecognition"
 )
 
 // OccurrencePattern is a multiset of sorted integer values.
@@ -106,4 +108,37 @@ func (op *OccurrencePattern) CompareTo(other *OccurrencePattern) int {
 		// patterns are equal
 		return 0
 	}
+}
+
+// OPFromDNF will build the occurrence patterns for the DNF ϕ.
+// The number of variables (nbvar) must be known in advance.
+// No variable in the DNF must be >= nbvar, this will not be checked though!
+//
+// This function returns a slice of length nbvar where the OP for variable x
+// is stored on position x.
+func OPFromDNF(phi br.ClauseSet, nbvar int) []*OccurrencePattern {
+	res := make([]*OccurrencePattern, nbvar)
+	for i := 0; i < nbvar; i++ {
+		// TODO do we even need the variable index?
+		res[i] = EmptyOccurrencePattern(i, 10)
+	}
+	// we could think if we want to do some concurrent stuff here, but we would
+	// have to lock the occurrence patterns... and we don't really want that
+	for _, clause := range phi {
+		n := len(clause)
+		for _, x := range clause {
+			res[x].Insert(n)
+		}
+	}
+	return res
+}
+
+// SortPatterns will sort the occurrence patterns according to importance of
+// the variables.
+// That is the greatest element according to ≽ comes first.
+func SortPatterns(patterns []*OccurrencePattern) {
+	comp := func(i, j int) bool {
+		return patterns[i].CompareTo(patterns[j]) > 0
+	}
+	sort.Slice(patterns, comp)
 }
