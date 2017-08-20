@@ -16,6 +16,7 @@ package lpb
 
 import (
 	"fmt"
+	"sync"
 
 	br "github.com/FabianWe/boolrecognition"
 )
@@ -231,7 +232,10 @@ func NewSplitResult(final bool, phi br.ClauseSet, occurrences []*OccurrencePatte
 //
 // TODO implement symmetry test.
 func Split(n SplitNode, k int, symmetryTest bool) *SplitResult {
+	nbvar := n.GetContext().Nbvar
 	column := n.GetColumn()
+	// we can update the patterns while we iterate over the dnf
+	newOccurrences := EmptyPatterns(nbvar - column - 1)
 	isResFinal := false
 	// maybe too big...
 	newDNF := br.NewClauseSet(len(n.GetPhi()))
@@ -254,6 +258,7 @@ func Split(n SplitNode, k int, symmetryTest bool) *SplitResult {
 				}
 				// add clause
 				newDNF = append(newDNF, newClause)
+				updateOP(newOccurrences, newClause, nbvar, column+1)
 			}
 		}
 	} else {
@@ -268,17 +273,141 @@ func Split(n SplitNode, k int, symmetryTest bool) *SplitResult {
 			// this means to simply remove the first element
 			if clause[0] == variable {
 				newClause := clause[1:]
-				newDNF = append(newDNF, newClause)
 				if len(newClause) == 0 {
 					isResFinal = true
 				}
+				newDNF = append(newDNF, newClause)
+				updateOP(newOccurrences, newClause, nbvar, column+1)
 			}
 		}
 	}
 	if len(newDNF) == 0 {
 		isResFinal = true
 	}
-	// create occurrence pattern
-	occurrences := OPFromDNFShift(newDNF, n.GetContext().Nbvar, column+1)
-	return NewSplitResult(isResFinal, newDNF, occurrences)
+	// sort new occurrence patterns
+	SortAll(newOccurrences)
+	return NewSplitResult(isResFinal, newDNF, newOccurrences)
+}
+
+//
+// TODO implement symmetry test.
+func SplitBoth(n SplitNode, symmetryTest bool) (*SplitResult, *SplitResult) {
+	nbvar := n.GetContext().Nbvar
+	column := n.GetColumn()
+	// again we can update the occurrence patterns while iterating over the
+	// dnf, this time we use some concurrency:
+	// when we add to the first dnf and then encounter another clause for the
+	// second dnf we can run this concurrently.
+	// that's to say: each dnf might write values to a channel (below)
+	// a goroutine listens on that channels and handels the update
+	// we use a waitgroup that we add in both gorutines to and later wait
+	// for all updates to finish
+	var wg sync.WaitGroup
+	updateChanOne := make(chan br.Clause)
+	updateChanTwo := make(chan br.Clause)
+	// defer closing the channels so we don't forget it
+	defer close(updateChanOne)
+	defer close(updateChanTwo)
+	// initialize both occurrence patterns, we also create them concurrently
+	var patternsOne, patternsTwo []*OccurrencePattern
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		patternsOne = EmptyPatterns(nbvar - column - 1)
+	}()
+	go func() {
+		defer wg.Done()
+		patternsTwo = EmptyPatterns(nbvar - column - 1)
+	}()
+	wg.Wait()
+	// start the go routines
+	go func() {
+		for clause := range updateChanOne {
+			updateOP(patternsOne, clause, nbvar, column+1)
+			wg.Done()
+		}
+	}()
+	go func() {
+		for clause := range updateChanTwo {
+			updateOP(patternsTwo, clause, nbvar, column+1)
+			wg.Done()
+		}
+	}()
+	isFirstFinal, isSecondFinal := false, false
+	containsEmptyClause := false
+	firstDNF, secondDNF := br.NewClauseSet(len(n.GetPhi())), br.NewClauseSet(len(n.GetPhi()))
+	// just to make clear where the variable comes from
+	variable := column
+
+	for _, clause := range n.GetPhi() {
+		if len(clause) == 0 {
+			containsEmptyClause = true
+		}
+		// now check if variable is contained or not
+		if len(clause) == 0 || clause[0] != variable {
+			// we simply use the old clause, this makes the code a bit more
+			// understandable I hope
+			newClause := clause
+			if len(newClause) == 0 {
+				isFirstFinal = true
+			}
+			// add clause
+			firstDNF = append(firstDNF, newClause)
+			// add occurrence pattern to the channel
+			// run a go routine and add 1 to the wait group
+			wg.Add(1)
+			go func(c br.Clause) {
+				updateChanOne <- c
+			}(newClause)
+		} else if clause[0] == variable {
+			// if the variable is contained copy the clause and remove the variable
+			// this means to simply remove the first element
+			if clause[0] == variable {
+				newClause := clause[1:]
+				if len(newClause) == 0 {
+					isSecondFinal = true
+				}
+				// add clause
+				secondDNF = append(secondDNF, newClause)
+				// add occurrence pattern to the channel
+				// run a go routine and add 1 to the wait group
+				wg.Add(1)
+				go func(c br.Clause) {
+					updateChanTwo <- c
+				}(newClause)
+			}
+		}
+	}
+	if len(firstDNF) == 0 {
+		isFirstFinal = true
+	}
+	if len(secondDNF) == 0 {
+		isSecondFinal = true
+	}
+	// wait for the update go routines to finish
+	wg.Wait()
+	if containsEmptyClause {
+		// return first result for both
+		// sort the patterns first
+		SortAll(patternsOne)
+		res := NewSplitResult(isFirstFinal, firstDNF, patternsOne)
+		return res, res
+	}
+	// if empty clause is not contained return both results
+	// again, sort the patterns
+	// again concurrently, why not?
+	wg.Add(2)
+	go func() {
+		SortAll(patternsOne)
+		wg.Done()
+	}()
+	go func() {
+		SortAll(patternsTwo)
+		wg.Done()
+	}()
+	// wait until sorting is finished
+	wg.Wait()
+	res1 := NewSplitResult(isFirstFinal, firstDNF, patternsOne)
+	res2 := NewSplitResult(isSecondFinal, secondDNF, patternsTwo)
+	return res1, res2
 }

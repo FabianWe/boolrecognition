@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"sync"
 
 	br "github.com/FabianWe/boolrecognition"
 )
@@ -35,18 +36,16 @@ import (
 // Occurrence patterns are sorted multisets, we first construct the whole
 // pattern and then sort it. So the Insert method does not (re)sort the OP.
 //
-// Note that occurrence patterns are not safe for concurrent use (don't insert)
+// Note that occurrence patterns are not safe for concurrent use (don't insert).
 // from multiple goroutines.
 type OccurrencePattern struct {
 	Occurrences []int
-	Variable    int
 }
 
 // EmptyOccurrencePattern greates a new occurrence pattern for the variable
 // and the slice of the numbers is initialized with the specified capacity.
-func EmptyOccurrencePattern(variable, initialCapacity int) *OccurrencePattern {
-	return &OccurrencePattern{Variable: variable,
-		Occurrences: make([]int, 0, initialCapacity)}
+func EmptyOccurrencePattern(initialCapacity int) *OccurrencePattern {
+	return &OccurrencePattern{Occurrences: make([]int, 0, initialCapacity)}
 }
 
 func (op *OccurrencePattern) String() string {
@@ -110,6 +109,22 @@ func (op *OccurrencePattern) CompareTo(other *OccurrencePattern) int {
 	}
 }
 
+func EmptyPatterns(size int) []*OccurrencePattern {
+	res := make([]*OccurrencePattern, size)
+	for i := 0; i < size; i++ {
+		res[i] = EmptyOccurrencePattern(10)
+	}
+	return res
+}
+
+// updateOP will update the occurrence patterns given a new clause.
+func updateOP(patterns []*OccurrencePattern, clause br.Clause, nbvar, column int) {
+	n := len(clause)
+	for _, x := range clause {
+		patterns[x-column].Insert(n)
+	}
+}
+
 // OPFromDNF will build the occurrence patterns for the DNF ϕ.
 // The number of variables (nbvar) must be known in advance.
 // No variable in the DNF must be >= nbvar, this will not be checked though!
@@ -134,18 +149,15 @@ func OPFromDNF(phi br.ClauseSet, nbvar int) []*OccurrencePattern {
 // be one because we create the successors that are stored in column one
 // (the second one)
 func OPFromDNFShift(phi br.ClauseSet, nbvar, column int) []*OccurrencePattern {
-	res := make([]*OccurrencePattern, nbvar-column)
+	res := EmptyPatterns(nbvar - column)
 	for i := 0; i < nbvar-column; i++ {
 		// TODO do we even need the variable index?
-		res[i] = EmptyOccurrencePattern(i, 10)
+		res[i] = EmptyOccurrencePattern(10)
 	}
 	// we could think if we want to do some concurrent stuff here, but we would
 	// have to lock the occurrence patterns... and we don't really want that
 	for _, clause := range phi {
-		n := len(clause)
-		for _, x := range clause {
-			res[x-column].Insert(n)
-		}
+		updateOP(res, clause, nbvar, column)
 	}
 	return res
 }
@@ -158,4 +170,26 @@ func SortPatterns(patterns []*OccurrencePattern) {
 		return patterns[i].CompareTo(patterns[j]) > 0
 	}
 	sort.Slice(patterns, comp)
+}
+
+// SortAll will sort each occurrence pattern in patterns.
+// So don't confuse this method with SortPatterns, this will sort the patterns
+// according to ≽, but each pattern itself must be sorted first with this
+// method.
+//
+// This method will sort all patterns concurrently.
+//
+// TODO potential improvement? Sort the clauses according to length first.
+// So when constructing new patterns we don't have to sort again and again.
+// But is this always correct when we split away variables? I don't think so.
+func SortAll(patterns []*OccurrencePattern) {
+	var wg sync.WaitGroup
+	wg.Add(len(patterns))
+	for _, pattern := range patterns {
+		go func(op *OccurrencePattern) {
+			op.Sort()
+			wg.Done()
+		}(pattern)
+	}
+	wg.Wait()
 }

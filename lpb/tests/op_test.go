@@ -23,10 +23,10 @@ import (
 
 // TestOPSmaus tests Example 6.4 of Smaus' paper.
 func TestOPSmaus(t *testing.T) {
-	op1 := &lpb.OccurrencePattern{Occurrences: []int{2, 2, 2, 2}, Variable: 1}
-	op2 := &lpb.OccurrencePattern{Occurrences: []int{2, 2, 2}, Variable: 2}
-	op3 := &lpb.OccurrencePattern{Occurrences: []int{2, 2, 3}, Variable: 3}
-	op4 := &lpb.OccurrencePattern{Occurrences: []int{2, 3}, Variable: 4}
+	op1 := &lpb.OccurrencePattern{Occurrences: []int{2, 2, 2, 2}}
+	op2 := &lpb.OccurrencePattern{Occurrences: []int{2, 2, 2}}
+	op3 := &lpb.OccurrencePattern{Occurrences: []int{2, 2, 3}}
+	op4 := &lpb.OccurrencePattern{Occurrences: []int{2, 3}}
 
 	tests := []struct {
 		first, second *lpb.OccurrencePattern
@@ -53,8 +53,8 @@ func TestOPSmaus(t *testing.T) {
 	for _, tt := range tests {
 		actual := tt.first.CompareTo(tt.second)
 		if actual != tt.expected {
-			t.Errorf("Error comparing OP%d and OP%d: expected %d, got %d",
-				tt.first.Variable, tt.second.Variable, tt.expected, actual)
+			t.Errorf("Error comparing OPs: expected %d, got %d",
+				tt.expected, actual)
 		}
 	}
 }
@@ -62,11 +62,11 @@ func TestOPSmaus(t *testing.T) {
 // TestOPWenzelmann tests the examples from Example 2.2 from
 // Wenzelmanns bachelor thesis.
 func TestOPWenzelmann(t *testing.T) {
-	op1 := &lpb.OccurrencePattern{Occurrences: []int{2, 2, 3}, Variable: 1}
-	op2 := &lpb.OccurrencePattern{Occurrences: []int{2, 3}, Variable: 2}
-	op3 := &lpb.OccurrencePattern{Occurrences: []int{2, 3}, Variable: 3}
-	op4 := &lpb.OccurrencePattern{Occurrences: []int{3, 3}, Variable: 4}
-	op5 := &lpb.OccurrencePattern{Occurrences: []int{3}, Variable: 5}
+	op1 := &lpb.OccurrencePattern{Occurrences: []int{2, 2, 3}}
+	op2 := &lpb.OccurrencePattern{Occurrences: []int{2, 3}}
+	op3 := &lpb.OccurrencePattern{Occurrences: []int{2, 3}}
+	op4 := &lpb.OccurrencePattern{Occurrences: []int{3, 3}}
+	op5 := &lpb.OccurrencePattern{Occurrences: []int{3}}
 
 	tests := []struct {
 		first, second *lpb.OccurrencePattern
@@ -83,8 +83,8 @@ func TestOPWenzelmann(t *testing.T) {
 	for _, tt := range tests {
 		actual := tt.first.CompareTo(tt.second)
 		if actual != tt.expected {
-			t.Errorf("Error comparing OP%d and OP%d: expected %d, got %d",
-				tt.first.Variable, tt.second.Variable, tt.expected, actual)
+			t.Errorf("Error comparing OPs: expected %d, got %d",
+				tt.expected, actual)
 		}
 	}
 }
