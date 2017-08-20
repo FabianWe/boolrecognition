@@ -39,13 +39,18 @@ import (
 // Note that occurrence patterns are not safe for concurrent use (don't insert).
 // from multiple goroutines.
 type OccurrencePattern struct {
+	// The actual pattern
 	Occurrences []int
+	// VariableId is the id of the variable, this is only needed in the first run!
+	// When we create OPs for DNFs in the second or later column this value will
+	// not make sense! It only makes sense in the first column of the tree.
+	VariableId int
 }
 
 // EmptyOccurrencePattern greates a new occurrence pattern for the variable
 // and the slice of the numbers is initialized with the specified capacity.
 func EmptyOccurrencePattern(initialCapacity int) *OccurrencePattern {
-	return &OccurrencePattern{Occurrences: make([]int, 0, initialCapacity)}
+	return &OccurrencePattern{Occurrences: make([]int, 0, initialCapacity), VariableId: -1}
 }
 
 func (op *OccurrencePattern) String() string {
@@ -114,7 +119,9 @@ func (op *OccurrencePattern) CompareTo(other *OccurrencePattern) int {
 func EmptyPatterns(size int) []*OccurrencePattern {
 	res := make([]*OccurrencePattern, size)
 	for i := 0; i < size; i++ {
-		res[i] = EmptyOccurrencePattern(10)
+		newPattern := EmptyOccurrencePattern(10)
+		newPattern.VariableId = i
+		res[i] = newPattern
 	}
 	return res
 }
@@ -133,6 +140,12 @@ func updateOP(patterns []*OccurrencePattern, clause br.Clause, nbvar, column int
 //
 // This function returns a slice of length nbvar where the OP for variable x
 // is stored on position x.
+//
+// This method does not sort the patterns (neither the patterns themselves
+// or the whole pattern slice)! You must first make sure that all the patterns
+// are sorted (the elements in each pattern), see SortAll for this.
+// Then you must make sure that the elements are sorted according the ≽
+// order, see SortPatterns for this.
 func OPFromDNF(phi br.ClauseSet, nbvar int) []*OccurrencePattern {
 	return OPFromDNFShift(phi, nbvar, 0)
 }
@@ -152,10 +165,6 @@ func OPFromDNF(phi br.ClauseSet, nbvar int) []*OccurrencePattern {
 // (the second one)
 func OPFromDNFShift(phi br.ClauseSet, nbvar, column int) []*OccurrencePattern {
 	res := EmptyPatterns(nbvar - column)
-	for i := 0; i < nbvar-column; i++ {
-		// TODO do we even need the variable index?
-		res[i] = EmptyOccurrencePattern(10)
-	}
 	// we could think if we want to do some concurrent stuff here, but we would
 	// have to lock the occurrence patterns... and we don't really want that
 	for _, clause := range phi {

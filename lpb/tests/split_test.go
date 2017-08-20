@@ -15,6 +15,7 @@
 package tests
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,10 +77,10 @@ func TestSplitSmaus(t *testing.T) {
 	// create a dummy main node to call split on
 	// create some dummy context as well
 	ctx := &lpb.TreeContext{nil, 5}
-	n := lpb.NewMainNode(nil, nil, smausDNF, nil, ctx, -1, false)
+	n := lpb.NewMainNode(nil, nil, smausDNF, nil, ctx)
 	n.SetColumn(0)
-	zeroSplit := lpb.Split(n, 0, false)
-	oneSplit := lpb.Split(n, 1, true)
+	zeroSplit := lpb.Split(n, 0, true, false)
+	oneSplit := lpb.Split(n, 1, true, true)
 	if zeroSplit.Final {
 		t.Error("split with k = 0 must produce a non-final DNF, got final dnf")
 	}
@@ -101,10 +102,10 @@ func TestSplitWenzelmann(t *testing.T) {
 	// create a dummy main node to call split on
 	// create some dummy context as well
 	ctx := &lpb.TreeContext{nil, 5}
-	n := lpb.NewMainNode(nil, nil, wenzelmannDNF, nil, ctx, -1, false)
+	n := lpb.NewMainNode(nil, nil, wenzelmannDNF, nil, ctx)
 	n.SetColumn(0)
-	zeroSplit := lpb.Split(n, 0, false)
-	oneSplit := lpb.Split(n, 1, true)
+	zeroSplit := lpb.Split(n, 0, true, false)
+	oneSplit := lpb.Split(n, 1, true, true)
 	if zeroSplit.Final {
 		t.Error("split with k = 0 must produce a non-final DNF, got final dnf")
 	}
@@ -125,9 +126,9 @@ func TestSplitBothSmaus(t *testing.T) {
 	// create a dummy main node to call split on
 	// create some dummy context as well
 	ctx := &lpb.TreeContext{nil, 5}
-	n := lpb.NewMainNode(nil, nil, smausDNF, nil, ctx, -1, false)
+	n := lpb.NewMainNode(nil, nil, smausDNF, nil, ctx)
 	n.SetColumn(0)
-	zeroSplit, oneSplit := lpb.SplitBoth(n, false)
+	zeroSplit, oneSplit := lpb.SplitBoth(n, true, false)
 	if zeroSplit.Final {
 		t.Error("split with k = 0 must produce a non-final DNF, got final dnf")
 	}
@@ -148,9 +149,9 @@ func TestSplitBothWenzelmann(t *testing.T) {
 	// create a dummy main node to call split on
 	// create some dummy context as well
 	ctx := &lpb.TreeContext{nil, 5}
-	n := lpb.NewMainNode(nil, nil, wenzelmannDNF, nil, ctx, -1, false)
+	n := lpb.NewMainNode(nil, nil, wenzelmannDNF, nil, ctx)
 	n.SetColumn(0)
-	zeroSplit, oneSplit := lpb.SplitBoth(n, false)
+	zeroSplit, oneSplit := lpb.SplitBoth(n, true, false)
 	if zeroSplit.Final {
 		t.Error("split with k = 0 must produce a non-final DNF, got final dnf")
 	}
@@ -164,4 +165,12 @@ func TestSplitBothWenzelmann(t *testing.T) {
 	if !cmpDNFS(oneSplit.Phi, wenzelmannOne) {
 		t.Errorf("For split with k = 1: expected %s, got %s", smausOne, oneSplit.Phi)
 	}
+}
+
+func TestTreeSmaus(t *testing.T) {
+	tree := lpb.NewSplittingTree(smausDNF, 5, false, true)
+	tree.Root.Split(false, true)
+	tree.Root.GetLowerChild().Split(false, true)
+	fmt.Println(tree.Root.GetLowerChild().GetUpperChild())
+	fmt.Println(tree.Root.GetLowerChild().GetLowerChild())
 }

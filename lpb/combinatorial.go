@@ -34,7 +34,9 @@ func NewTreeContext(nbvar int) *TreeContext {
 func (c *TreeContext) AddNode(node SplitNode) int {
 	col := node.GetColumn()
 	c.Tree[col] = append(c.Tree[col], node)
-	return len(c.Tree[col]) - 1
+	row := len(c.Tree[col]) - 1
+	node.SetRow(row)
+	return row
 }
 
 type GenericSplitNode struct {
@@ -160,6 +162,8 @@ func (n *GenericSplitNode) SetAlreadySplit(val bool) {
 
 // TODO remove methods we don't need!
 type SplitNode interface {
+	Split(symmetryTest, cut bool)
+
 	IsFinal() bool
 	GetLowerParent() SplitNode
 	SetLowerParent(node SplitNode)
@@ -204,10 +208,6 @@ func isFinal(phi br.ClauseSet) dnfFinal {
 	return NotFinal
 }
 
-func calcIsFinal(phi br.ClauseSet) bool {
-	return len(phi) == 0 || (len(phi) == 1 && len(phi[0]) == 0)
-}
-
 type MainNode struct {
 	*GenericSplitNode
 	MaxL  int
@@ -215,13 +215,80 @@ type MainNode struct {
 }
 
 func NewMainNode(lp, up SplitNode, phi br.ClauseSet,
-	patterns []*OccurrencePattern, context *TreeContext,
-	maxL int, final bool) *MainNode {
-	return &MainNode{NewGenericSplitNode(lp, up, phi, patterns, context), maxL, final}
+	patterns []*OccurrencePattern, context *TreeContext) *MainNode {
+	return &MainNode{NewGenericSplitNode(lp, up, phi, patterns, context), -1, false}
+}
+
+func (n *MainNode) calcFinal() {
+	switch isFinal(n.Phi) {
+	case IsFalse, IsTrue:
+		n.Final = true
+	default:
+		n.Final = false
+	}
 }
 
 func (n *MainNode) IsFinal() bool {
 	return n.Final
+}
+
+// TODO JGS: cut is being ignored because I don't really understand it :)
+func (n *MainNode) Split(symmetryTest, cut bool) {
+	n.MaxL = ComputeMaxL(n.GetPatterns())
+	nodeVal := isFinal(n.GetPhi())
+	if n.MaxL == 1 {
+		if cut {
+			switch nodeVal {
+			case IsFalse:
+				splitRes := Split(n, 1, true, symmetryTest)
+				lowerChild := NewMainNode(nil, n, splitRes.Phi, splitRes.Occurrences, n.GetContext())
+				lowerChild.Final = splitRes.Final
+				n.SetLowerChild(lowerChild)
+				return
+			case IsTrue:
+				splitRes := Split(n, 0, true, symmetryTest)
+				upperChild := NewMainNode(n, nil, splitRes.Phi, splitRes.Occurrences, n.GetContext())
+				upperChild.Final = splitRes.Final
+				n.SetUpperChild(upperChild)
+				return
+			}
+		}
+		first, second := SplitBoth(n, true, symmetryTest)
+
+		upperChild := NewMainNode(n, nil, first.Phi, first.Occurrences, n.GetContext())
+		upperChild.Final = first.Final
+		n.SetUpperChild(upperChild)
+
+		lowerChild := NewMainNode(nil, n, second.Phi, second.Occurrences, n.GetContext())
+		lowerChild.Final = second.Final
+		n.SetLowerChild(lowerChild)
+	} else {
+		if cut {
+			switch nodeVal {
+			case IsFalse:
+				splitRes := Split(n, 1, false, symmetryTest)
+				lowerChild := NewAuxNode(nil, n, splitRes.Phi, splitRes.Occurrences,
+					n.GetContext(), n.MaxL, 1)
+				n.SetLowerChild(lowerChild)
+				return
+			case IsTrue:
+				splitRes := Split(n, 0, false, symmetryTest)
+				upperChild := NewAuxNode(n, nil, splitRes.Phi, splitRes.Occurrences,
+					n.GetContext(), n.MaxL, 1)
+				n.SetUpperChild(upperChild)
+				return
+			}
+		}
+		first, second := SplitBoth(n, false, symmetryTest)
+
+		upperChild := NewAuxNode(n, nil, first.Phi, first.Occurrences,
+			n.GetContext(), n.MaxL, 1)
+		n.SetUpperChild(upperChild)
+
+		lowerChild := NewAuxNode(nil, n, second.Phi, second.Occurrences,
+			n.GetContext(), n.MaxL, 1)
+		n.SetLowerChild(lowerChild)
+	}
 }
 
 type AuxNode struct {
@@ -243,6 +310,117 @@ func (n *AuxNode) createMainNode() bool {
 	return n.LPrime == (n.LValue - 1)
 }
 
+func (n *AuxNode) Split(symmetryTest, cut bool) {
+	createBoth := false
+	nodeVal := isFinal(n.GetPhi())
+	if cut {
+		switch nodeVal {
+		case IsFalse:
+			if n.createMainNode() {
+				splitRes := Split(n, 1, true, symmetryTest)
+				lowerChild := NewMainNode(nil, n, splitRes.Phi, splitRes.Occurrences, n.GetContext())
+				lowerChild.Final = splitRes.Final
+				n.SetLowerChild(lowerChild)
+			} else {
+				splitRes := Split(n, 1, false, symmetryTest)
+				lowerChild := NewAuxNode(nil, n, splitRes.Phi, splitRes.Occurrences,
+					n.GetContext(), n.LValue, n.LPrime+1)
+				n.SetLowerChild(lowerChild)
+			}
+			return
+		case IsTrue:
+			if n.GetUpperParent().GetUpperChild() == nil {
+				// TODO remove debug once tested thoroughly
+				panic("Debug error: split aux node, upperParent.upperChild is nil!")
+			}
+			n.SetUpperChild(n.GetUpperParent().GetUpperChild().GetLowerChild())
+			return
+		}
+	}
+	if n.GetUpperParent() != nil {
+		if n.GetUpperParent().GetUpperChild() == nil {
+			// TODO remove debug once tested thoroughly
+			panic("Debug error: split aux node, upperParent.upperChild is nil!")
+		}
+		n.SetUpperChild(n.GetUpperParent().GetUpperChild().GetLowerChild())
+		n.GetUpperChild().SetLowerParent(n)
+	} else {
+		createBoth = true
+	}
+	if createBoth {
+		if n.createMainNode() {
+			first, second := SplitBoth(n, true, symmetryTest)
+
+			upperChild := NewMainNode(n, nil, first.Phi, first.Occurrences, n.GetContext())
+			upperChild.Final = first.Final
+			n.SetUpperChild(upperChild)
+
+			lowerChild := NewMainNode(nil, n, second.Phi, second.Occurrences, n.GetContext())
+			lowerChild.Final = second.Final
+			n.SetLowerChild(lowerChild)
+		} else {
+			first, second := SplitBoth(n, false, symmetryTest)
+
+			upperChild := NewAuxNode(n, nil, first.Phi, first.Occurrences,
+				n.GetContext(), n.LValue, n.LPrime+1)
+			n.SetUpperChild(upperChild)
+
+			lowerChild := NewAuxNode(nil, n, second.Phi, second.Occurrences,
+				n.GetContext(), n.LValue, n.LPrime+1)
+			n.SetLowerChild(lowerChild)
+		}
+	} else {
+		// here is the code for the idea in the TODO below
+		// start a go routine that computes Split with k = 0
+		// and write it to a channel
+
+		// ch := make(chan *SplitResult)
+		// if symmetryTest {
+		// 	go func() {
+		// 		ch <- Split(n, 0, false, symmetryTest)
+		// 	}()
+		// }
+
+		// end of the symmetry test code
+		if n.createMainNode() {
+			splitRes := Split(n, 1, true, symmetryTest)
+			lowerChild := NewMainNode(nil, n, splitRes.Phi, splitRes.Occurrences, n.GetContext())
+			// TODO in the C++ version I calculated isFinal on the node, why not do it
+			// this way, is this wrong?
+			lowerChild.Final = splitRes.Final
+			n.SetLowerChild(lowerChild)
+		} else {
+			splitRes := Split(n, 1, false, symmetryTest)
+			lowerChild := NewAuxNode(nil, n, splitRes.Phi, splitRes.Occurrences,
+				n.GetContext(), n.LValue, n.LValue+1)
+			n.SetLowerChild(lowerChild)
+		}
+		if symmetryTest {
+			// TODO here was the symmetry test, removed it
+			// have to think about how to do it best,
+			// I think it's not a good idea to call split again?
+			// of course we could use SplitBoth but this would needlessly create
+			// occurrence patterns, even if we don't need it
+			// I think it's best if we simply split before we even decide if we're
+			// in a main node (in a different go routine)
+			// however checking if two DNFs are equal is not that easy with this
+			// style, or is it?
+			// all clauses are sorted, so we simply must compare the length and
+			// then iterate over each element in the slice,
+			// such an implementation is already present in split_test
+			// now that I think of it that should do the trick...
+
+			// here is the code if we would want to receive the result
+			// we computed concurrently
+
+			// testDnf := <-ch
+
+			// now test it and so on
+			// end of this code snippet
+		}
+	}
+}
+
 type SplitResult struct {
 	Final       bool
 	Phi         br.ClauseSet
@@ -259,12 +437,17 @@ func NewSplitResult(final bool, phi br.ClauseSet, occurrences []*OccurrencePatte
 // away is given by the column of the node (in column k we split away variable
 // k).
 //
+// If createPatterns is true the occurrence patterns will be created
+//
 // TODO implement symmetry test.
-func Split(n SplitNode, k int, symmetryTest bool) *SplitResult {
+func Split(n SplitNode, k int, createPatterns, symmetryTest bool) *SplitResult {
 	nbvar := n.GetContext().Nbvar
 	column := n.GetColumn()
 	// we can update the patterns while we iterate over the dnf
-	newOccurrences := EmptyPatterns(nbvar - column - 1)
+	var newOccurrences []*OccurrencePattern
+	if createPatterns {
+		newOccurrences = EmptyPatterns(nbvar - column - 1)
+	}
 	isResFinal := false
 	// maybe too big...
 	newDNF := br.NewClauseSet(len(n.GetPhi()))
@@ -287,7 +470,9 @@ func Split(n SplitNode, k int, symmetryTest bool) *SplitResult {
 				}
 				// add clause
 				newDNF = append(newDNF, newClause)
-				updateOP(newOccurrences, newClause, nbvar, column+1)
+				if createPatterns {
+					updateOP(newOccurrences, newClause, nbvar, column+1)
+				}
 			}
 		}
 	} else {
@@ -296,7 +481,7 @@ func Split(n SplitNode, k int, symmetryTest bool) *SplitResult {
 		for _, clause := range n.GetPhi() {
 			if len(clause) == 0 {
 				// empty clause! So return Split with k = 0
-				return Split(n, 0, symmetryTest)
+				return Split(n, 0, createPatterns, symmetryTest)
 			}
 			// if the variable is contained copy the clause and remove the variable
 			// this means to simply remove the first element
@@ -306,7 +491,9 @@ func Split(n SplitNode, k int, symmetryTest bool) *SplitResult {
 					isResFinal = true
 				}
 				newDNF = append(newDNF, newClause)
-				updateOP(newOccurrences, newClause, nbvar, column+1)
+				if createPatterns {
+					updateOP(newOccurrences, newClause, nbvar, column+1)
+				}
 			}
 		}
 	}
@@ -314,13 +501,15 @@ func Split(n SplitNode, k int, symmetryTest bool) *SplitResult {
 		isResFinal = true
 	}
 	// sort new occurrence patterns
-	SortAll(newOccurrences)
+	if createPatterns {
+		SortAll(newOccurrences)
+	}
 	return NewSplitResult(isResFinal, newDNF, newOccurrences)
 }
 
 //
 // TODO implement symmetry test.
-func SplitBoth(n SplitNode, symmetryTest bool) (*SplitResult, *SplitResult) {
+func SplitBoth(n SplitNode, createPatterns, symmetryTest bool) (*SplitResult, *SplitResult) {
 	nbvar := n.GetContext().Nbvar
 	column := n.GetColumn()
 	// again we can update the occurrence patterns while iterating over the
@@ -339,16 +528,18 @@ func SplitBoth(n SplitNode, symmetryTest bool) (*SplitResult, *SplitResult) {
 	defer close(updateChanTwo)
 	// initialize both occurrence patterns, we also create them concurrently
 	var patternsOne, patternsTwo []*OccurrencePattern
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		patternsOne = EmptyPatterns(nbvar - column - 1)
-	}()
-	go func() {
-		defer wg.Done()
-		patternsTwo = EmptyPatterns(nbvar - column - 1)
-	}()
-	wg.Wait()
+	if createPatterns {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			patternsOne = EmptyPatterns(nbvar - column - 1)
+		}()
+		go func() {
+			defer wg.Done()
+			patternsTwo = EmptyPatterns(nbvar - column - 1)
+		}()
+		wg.Wait()
+	}
 	// start the go routines
 	go func() {
 		for clause := range updateChanOne {
@@ -384,10 +575,12 @@ func SplitBoth(n SplitNode, symmetryTest bool) (*SplitResult, *SplitResult) {
 			firstDNF = append(firstDNF, newClause)
 			// add occurrence pattern to the channel
 			// run a go routine and add 1 to the wait group
-			wg.Add(1)
-			go func(c br.Clause) {
-				updateChanOne <- c
-			}(newClause)
+			if createPatterns {
+				wg.Add(1)
+				go func(c br.Clause) {
+					updateChanOne <- c
+				}(newClause)
+			}
 		} else if clause[0] == variable {
 			// if the variable is contained copy the clause and remove the variable
 			// this means to simply remove the first element
@@ -400,10 +593,12 @@ func SplitBoth(n SplitNode, symmetryTest bool) (*SplitResult, *SplitResult) {
 				secondDNF = append(secondDNF, newClause)
 				// add occurrence pattern to the channel
 				// run a go routine and add 1 to the wait group
-				wg.Add(1)
-				go func(c br.Clause) {
-					updateChanTwo <- c
-				}(newClause)
+				if createPatterns {
+					wg.Add(1)
+					go func(c br.Clause) {
+						updateChanTwo <- c
+					}(newClause)
+				}
 			}
 		}
 	}
@@ -439,4 +634,110 @@ func SplitBoth(n SplitNode, symmetryTest bool) (*SplitResult, *SplitResult) {
 	res1 := NewSplitResult(isFirstFinal, firstDNF, patternsOne)
 	res2 := NewSplitResult(isSecondFinal, secondDNF, patternsTwo)
 	return res1, res2
+}
+
+// SplittingTree represents the tree for a DNF.
+type SplittingTree struct {
+	Root                      *MainNode    // The root node
+	Context                   *TreeContext // The context of the tree
+	Renaming, ReverseRenaming []int        // See NewSplittingTree
+	DeleteContent             bool         // If set to true the content of a node (dnf and OPs) are set to nil and deleted by garbage collection
+	Cut                       bool         // TODO JGS Not entirely sure what this is supposed to mean
+}
+
+// NewSplittingTree creates a new tree given the DNF ϕ.
+// Important note: For our algorithm to work the variables must be sorted
+// according to their importance. Since this is not always the case (only
+// during testing and some very special cases) this method will do this for
+// you, i.e. it will create the occurrence patterns and then rename all
+// variables accordingly. So the DNF we store in the root node is the
+// renamed DNF. But we also store the mapping that caused this renaming
+// in the tree in the field Renaming. This slice stores for each "old" variable
+// the id in the new tree, i.e. a lookup tree.Renaming[id] gives you the
+// id of the variable in the new tree.
+// The reverse mapping, i.e. new variable → old variable is stored in
+// ReverseRenaming.
+//
+// If you don't need the renaming set sortPatterns to false, in this case
+// the patterns will work properly but the patterns don't get sorted.
+// That is only set it to false if you know that the ordering of the variables
+// is already correct.
+//
+// Also the clauses in the DNF must be sorted in increasing order.
+// If you don't want the clauses to get sorted set sortClauses to false.
+// Of course this only makes sense if also sortPatterns is set to false,
+// otherwise the new dnf might not be sorted.
+// This functions will sort them in this case nonetheless.
+//
+// The variables in the DNF have to be 0 <= v < nbar (so nbvar must be correct
+// and variables start with 0).
+// Also each variable should appear at least once in the DNF, what happens
+// otherwise is not tested yet.
+func NewSplittingTree(phi br.ClauseSet, nbvar int, sortPatterns, sortClauses bool) *SplittingTree {
+	context := NewTreeContext(nbvar)
+	// setup the patterns and the renamings
+	newDNF, patterns, renaming, reverseRenaming := initOPs(phi, nbvar, sortPatterns)
+	if sortPatterns || sortClauses {
+		newDNF.SortAll()
+	}
+	// create root node
+	// set final by computing it by hand
+	root := NewMainNode(nil, nil, newDNF, patterns, context)
+	// compute if node is already final
+	root.calcFinal()
+	// set column for root
+	root.SetColumn(0)
+	// insert root in the context
+	context.AddNode(root)
+	return &SplittingTree{Root: root,
+		Context:         context,
+		Renaming:        renaming,
+		ReverseRenaming: reverseRenaming}
+}
+
+// initOPs initializes the occurrence patterns for ϕ.
+// That is: It creates all patterns and sorts them.
+// It will also compute Renaming and ReverseRenaming as discussed in
+// NewSplittingTree.
+//
+// It returns first the renamedDNF, the patterns, then Renaming and then ReverseRenaming.
+// If sortPatterns is false the old dnf will be returned.
+//
+// TODO never tested, but seems reasonable
+func initOPs(phi br.ClauseSet, nbvar int, sortPatterns bool) (br.ClauseSet, []*OccurrencePattern, []int, []int) {
+	newDNF := phi
+	// intialize the renaming stuff
+	renaming := make([]int, nbvar)
+	reverseRenaming := make([]int, nbvar)
+	// initialize the occurrence patterns for the DNF
+	patterns := OPFromDNF(phi, nbvar)
+	// sort each pattern
+	SortAll(patterns)
+	// sort the pattern slice only if sortPatterns is set
+	if sortPatterns {
+		SortPatterns(patterns)
+		// now also create the mappings
+		for newVariableId, pattern := range patterns {
+			renaming[pattern.VariableId] = newVariableId
+			reverseRenaming[newVariableId] = pattern.VariableId
+		}
+		// we also must rename each variable in the dnf and return the new dnf
+		newDNF = make([]br.Clause, len(phi))
+		// now clone each clause, we'll do that concurrently
+		var wg sync.WaitGroup
+		wg.Add(len(phi))
+		for i := 0; i < len(phi); i++ {
+			go func(index int) {
+				clause := phi[index]
+				var newClause br.Clause = make([]int, len(clause))
+				for j, oldID := range clause {
+					newClause[j] = renaming[oldID]
+				}
+				newDNF[index] = newClause
+				wg.Done()
+			}(i)
+		}
+		wg.Wait()
+	}
+	return newDNF, patterns, renaming, reverseRenaming
 }

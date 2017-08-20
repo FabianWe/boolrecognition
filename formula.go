@@ -21,6 +21,7 @@ import (
 	"io"
 	"sort"
 	"strconv"
+	"sync"
 
 	"github.com/FabianWe/dimacscnf"
 )
@@ -93,6 +94,18 @@ func (phi ClauseSet) String() string {
 		buffer.WriteString(" }")
 	}
 	return buffer.String()
+}
+
+// SortAll will sort all clauses in increasing order.
+func (phi ClauseSet) SortAll() {
+	var wg sync.WaitGroup
+	wg.Add(len(phi))
+	for _, clause := range phi {
+		go func(c Clause) {
+			c.Sort()
+			wg.Done()
+		}(clause)
+	}
 }
 
 // positiveDimacsParser is a type that implements dimacscnf.DimacsParserHandler
