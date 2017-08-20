@@ -1,0 +1,5 @@
+c Expected result of split with k = 0 for Smaus' example
+p dnf 5 3
+2 3 0
+2 4 0
+3 4 5 0

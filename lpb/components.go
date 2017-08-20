@@ -40,6 +40,10 @@ import (
 // Mult() instead.
 type LPBCoeff int
 
+// If we ever need positive / negative values we should set PositiveInfinity
+// to the max. integer and NegativeInfinity to the min. integer.
+// See https://stackoverflow.com/questions/6878590/the-maximum-value-for-an-int-type-in-go
+
 const (
 	PositiveInfinity LPBCoeff = LPBCoeff(-1) // Value for ∞
 	NegativeInfinity LPBCoeff = LPBCoeff(-2) // Value for -∞

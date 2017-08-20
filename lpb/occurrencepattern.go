@@ -117,8 +117,25 @@ func (op *OccurrencePattern) CompareTo(other *OccurrencePattern) int {
 // This function returns a slice of length nbvar where the OP for variable x
 // is stored on position x.
 func OPFromDNF(phi br.ClauseSet, nbvar int) []*OccurrencePattern {
-	res := make([]*OccurrencePattern, nbvar)
-	for i := 0; i < nbvar; i++ {
+	return OPFromDNFShift(phi, nbvar, 0)
+}
+
+// OPFromDNFShift will build the occurrence patterns for the DNF ϕ.
+//
+// This is a rather internal method, but I exported it for testing and playing
+// around. If you want to build the patterns for a whole DNF (no splitting) or
+// something use OPFromDNF.
+//
+// nbvar is the number of variables in the whole dnf, this means if you already
+// used split some variables you always use the nbvar for the original DNF!
+//
+// column refers to the column this DNF is created for in the tree.
+// So if we call Split on a node in column zero (the first one) column will
+// be one because we create the successors that are stored in column one
+// (the second one)
+func OPFromDNFShift(phi br.ClauseSet, nbvar, column int) []*OccurrencePattern {
+	res := make([]*OccurrencePattern, nbvar-column)
+	for i := 0; i < nbvar-column; i++ {
 		// TODO do we even need the variable index?
 		res[i] = EmptyOccurrencePattern(i, 10)
 	}
@@ -127,7 +144,7 @@ func OPFromDNF(phi br.ClauseSet, nbvar int) []*OccurrencePattern {
 	for _, clause := range phi {
 		n := len(clause)
 		for _, x := range clause {
-			res[x].Insert(n)
+			res[x-column].Insert(n)
 		}
 	}
 	return res

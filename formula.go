@@ -87,7 +87,7 @@ func (phi ClauseSet) String() string {
 		fmt.Fprintf(buffer, "{ %s }", phi[0])
 	default:
 		fmt.Fprintf(buffer, "{ %s", phi[0])
-		for _, clause := range phi {
+		for _, clause := range phi[1:] {
 			fmt.Fprintf(buffer, ", %s", clause)
 		}
 		buffer.WriteString(" }")
@@ -128,7 +128,7 @@ func (h *positiveDimacsParser) NewVariable(value int) error {
 	if value > h.nbvar {
 		return fmt.Errorf("nbvar was set to %d, but found variable %d", h.nbvar, value)
 	}
-	i := len(h.clauses)
+	i := len(h.clauses) - 1
 	// add value - 1, we identify all variables with ints starting with 0
 	h.clauses[i] = append(h.clauses[i], value-1)
 	return nil

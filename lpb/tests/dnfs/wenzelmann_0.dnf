@@ -1,0 +1,3 @@
+c Expected result of split with k = 0 for Wenzelmann's example
+p dnf 5 1
+2 3 4 0

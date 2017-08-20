@@ -15,46 +15,14 @@
 package lpb
 
 import (
+	"fmt"
+
 	br "github.com/FabianWe/boolrecognition"
 )
 
-// VariableSetting accumlates some information we have about the variables.
-// It stores the occurrence pattern for each variable (as computed from a DNF).
-// Furthermore it stores the position of each variable in the global ordering,
-// that is: The variables must not be stored according to the occurrence
-// patterns, but after creating and sorting the patterns we assign each
-// variable x the position in the pattern ordering.
-// TODO remove this and create all the stuff somewhere else?
-type VariableSetting struct {
-	Patterns    []*OccurrencePattern
-	VariablePos []int
-}
-
-// NewVariableSetting sets up a new variable setting for ϕ.
-// It creates the occurrence patterns, sorts them and sets the variable
-// ordering array accordingly.
-func NewVariableSetting(phi br.ClauseSet, nbvar int) *VariableSetting {
-	// first initalize the occurrence patterns
-	patterns := OPFromDNF(phi, nbvar)
-	// now sort them
-	SortPatterns(patterns)
-	// save the variable position
-	pos := make([]int, nbvar)
-	for i, op := range patterns {
-		pos[op.Variable] = i
-	}
-	return &VariableSetting{Patterns: patterns,
-		VariablePos: pos}
-}
-
-func (vs *VariableSetting) GetVariable(column int) int {
-	return vs.Patterns[column].Variable
-}
-
 type TreeContext struct {
-	Tree    [][]SplitNode
-	Nbvar   int
-	Setting *VariableSetting
+	Tree  [][]SplitNode
+	Nbvar int
 }
 
 func NewTreeContext(nbvar int) *TreeContext {
@@ -200,15 +168,15 @@ type SplitNode interface {
 	SetLowerChild(node SplitNode)
 	GetUpperChild() SplitNode
 	SetUpperChild(node SplitNode)
-	GetPhi() br.ClauseSet
+	GetPhi() br.ClauseSet //
 	SetPhi(phi br.ClauseSet)
-	GetColumn() int //
-	SetColumn(column int)
+	GetColumn() int       //
+	SetColumn(column int) //
 	GetRow() int
 	SetRow(row int)
 	GetContext() *TreeContext //
 	SetContext(context *TreeContext)
-	GetPatterns() []*OccurrencePattern
+	GetPatterns() []*OccurrencePattern //
 	SetPatterns(patterns []*OccurrencePattern)
 	IsAlreadySplit() bool
 	SetAlreadySplit(val bool)
@@ -257,14 +225,60 @@ func NewSplitResult(final bool, phi br.ClauseSet, occurrences []*OccurrencePatte
 		Occurrences: occurrences}
 }
 
+// Split will split away the next variable. The variable that must be split
+// away is given by the column of the node (in column k we split away variable
+// k).
+//
 // TODO implement symmetry test.
 func Split(n SplitNode, k int, symmetryTest bool) *SplitResult {
-	// ctx := n.GetContext()
-	// column := n.GetColumn()
-	// newOccurrences := make([]*OccurrencePattern, ctx.Nbvar-column-1)
-	// // maybe too big...
-	// newDNF := br.NewClauseSet(len(n.GetPhi()))
-	// variable := ctx.Setting.GetVariable(column)
-	// fmt.Println(newOccurrences)
-	return nil
+	column := n.GetColumn()
+	isResFinal := false
+	// maybe too big...
+	newDNF := br.NewClauseSet(len(n.GetPhi()))
+	if n.GetPatterns() != nil && len(n.GetPatterns()) == 0 {
+		// TODO debug, can this happen?
+		fmt.Println("Debug the split method! Weird case...")
+	}
+	// just to make clear where the variable comes from
+	variable := column
+	if k == 0 {
+		// in this case copy all clauses that do not contain the variable
+		for _, clause := range n.GetPhi() {
+			// check if the clause does not contain the variable
+			if len(clause) == 0 || clause[0] != variable {
+				// we simply use the old clause, this makes the code a bit more
+				// understandable I hope
+				newClause := clause
+				if len(newClause) == 0 {
+					isResFinal = true
+				}
+				// add clause
+				newDNF = append(newDNF, newClause)
+			}
+		}
+	} else {
+		// if k is one we copy all clauses that contain the variable, but we
+		// remove the variable form the clauses
+		for _, clause := range n.GetPhi() {
+			if len(clause) == 0 {
+				// empty clause! So return Split with k = 0
+				return Split(n, 0, symmetryTest)
+			}
+			// if the variable is contained copy the clause and remove the variable
+			// this means to simply remove the first element
+			if clause[0] == variable {
+				newClause := clause[1:]
+				newDNF = append(newDNF, newClause)
+				if len(newClause) == 0 {
+					isResFinal = true
+				}
+			}
+		}
+	}
+	if len(newDNF) == 0 {
+		isResFinal = true
+	}
+	// create occurrence pattern
+	occurrences := OPFromDNFShift(newDNF, n.GetContext().Nbvar, column+1)
+	return NewSplitResult(isResFinal, newDNF, occurrences)
 }

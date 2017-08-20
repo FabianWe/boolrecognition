@@ -1,0 +1,10 @@
+c Example from Smaus' paper
+c "On Boolean Functions Encodable as a Single Linear Pseudo-Boolean Constraint"
+p dnf 5 7
+1 2 0
+1 3 0
+1 4 0
+1 5 0
+2 3 0
+2 4 0
+3 4 5 0
