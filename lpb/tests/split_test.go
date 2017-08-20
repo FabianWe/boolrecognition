@@ -120,6 +120,7 @@ func TestSplitWenzelmann(t *testing.T) {
 	}
 }
 
+// Test the SplitBoth method for the example from Smaus.
 func TestSplitBothSmaus(t *testing.T) {
 	// create a dummy main node to call split on
 	// create some dummy context as well
@@ -142,6 +143,7 @@ func TestSplitBothSmaus(t *testing.T) {
 	}
 }
 
+// Test the SplitBoth method for the example from Wenzelmann.
 func TestSplitBothWenzelmann(t *testing.T) {
 	// create a dummy main node to call split on
 	// create some dummy context as well

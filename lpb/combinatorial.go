@@ -183,6 +183,31 @@ type SplitNode interface {
 	SetAlreadySplit(val bool)
 }
 
+// dnfFinal is a type used to indacte if a dnf is false,
+// true or neither.
+type dnfFinal int
+
+const (
+	IsFalse dnfFinal = iota
+	IsTrue
+	NotFinal
+)
+
+// isFinal checks if a dnf is false, true or neither.
+func isFinal(phi br.ClauseSet) dnfFinal {
+	if len(phi) == 0 {
+		return IsFalse
+	}
+	if len(phi) == 1 && len(phi[0]) == 1 {
+		return IsTrue
+	}
+	return NotFinal
+}
+
+func calcIsFinal(phi br.ClauseSet) bool {
+	return len(phi) == 0 || (len(phi) == 1 && len(phi[0]) == 0)
+}
+
 type MainNode struct {
 	*GenericSplitNode
 	MaxL  int
@@ -212,6 +237,10 @@ func NewAuxNode(lp, up SplitNode, phi br.ClauseSet,
 
 func (n *AuxNode) IsFinal() bool {
 	return false
+}
+
+func (n *AuxNode) createMainNode() bool {
+	return n.LPrime == (n.LValue - 1)
 }
 
 type SplitResult struct {

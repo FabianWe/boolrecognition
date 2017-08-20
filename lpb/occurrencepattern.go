@@ -109,6 +109,8 @@ func (op *OccurrencePattern) CompareTo(other *OccurrencePattern) int {
 	}
 }
 
+// EmptyPatterns returns a slice of occurrence pattern of the given size, each
+// one is initialized to an empty pattern.
 func EmptyPatterns(size int) []*OccurrencePattern {
 	res := make([]*OccurrencePattern, size)
 	for i := 0; i < size; i++ {
@@ -192,4 +194,33 @@ func SortAll(patterns []*OccurrencePattern) {
 		}(pattern)
 	}
 	wg.Wait()
+}
+
+// ComputeMaxL computes the max l s.t. the first l patterns are equal.
+//
+// There are some TODO here.
+func ComputeMaxL(patterns []*OccurrencePattern) int {
+	l := 1
+	// TODO: Strange behavior if the DNF cannot be represented as a LPB
+	// first can be null in this case?
+	// why? JGS: let's see if implementing a symmetry test will remedy this.
+	first := patterns[0]
+	for l < len(patterns) {
+		next := patterns[l]
+		if next == nil {
+			// TODO create new empty OP here, correct?
+			next = EmptyOccurrencePattern(10)
+			patterns[l] = next
+		}
+		if first == nil { // TODO JGS: to fix the segmentation fault
+			l++
+		} else {
+			if first.CompareTo(next) == 0 {
+				l++
+			} else {
+				break
+			}
+		}
+	}
+	return l
 }
