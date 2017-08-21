@@ -108,6 +108,27 @@ func (phi ClauseSet) SortAll() {
 	}
 }
 
+// SortedEquals is a simple equality check for clause sets.
+// It does compare literally each clause in the sets and checks if
+// they're equal, therefore they should be sorted.
+func (phi ClauseSet) SortedEquals(other ClauseSet) bool {
+	if len(phi) != len(other) {
+		return false
+	}
+	for i, clause := range phi {
+		otherClause := other[i]
+		if len(clause) != len(otherClause) {
+			return false
+		}
+		for j, val1 := range clause {
+			if val1 != otherClause[j] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // positiveDimacsParser is a type that implements dimacscnf.DimacsParserHandler
 // and is used in ParsePositiveDIMACS to parse the input.
 type positiveDimacsParser struct {

@@ -15,7 +15,6 @@
 package tests
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -76,7 +75,7 @@ func cmpDNFS(phi1, phi2 br.ClauseSet) bool {
 func TestSplitSmaus(t *testing.T) {
 	// create a dummy main node to call split on
 	// create some dummy context as well
-	ctx := &lpb.TreeContext{nil, 5}
+	ctx := lpb.NewTreeContext(5)
 	n := lpb.NewMainNode(nil, nil, smausDNF, nil, ctx)
 	n.SetColumn(0)
 	zeroSplit := lpb.Split(n, 0, true, false)
@@ -101,7 +100,7 @@ func TestSplitSmaus(t *testing.T) {
 func TestSplitWenzelmann(t *testing.T) {
 	// create a dummy main node to call split on
 	// create some dummy context as well
-	ctx := &lpb.TreeContext{nil, 5}
+	ctx := lpb.NewTreeContext(5)
 	n := lpb.NewMainNode(nil, nil, wenzelmannDNF, nil, ctx)
 	n.SetColumn(0)
 	zeroSplit := lpb.Split(n, 0, true, false)
@@ -125,7 +124,7 @@ func TestSplitWenzelmann(t *testing.T) {
 func TestSplitBothSmaus(t *testing.T) {
 	// create a dummy main node to call split on
 	// create some dummy context as well
-	ctx := &lpb.TreeContext{nil, 5}
+	ctx := lpb.NewTreeContext(5)
 	n := lpb.NewMainNode(nil, nil, smausDNF, nil, ctx)
 	n.SetColumn(0)
 	zeroSplit, oneSplit := lpb.SplitBoth(n, true, false)
@@ -148,7 +147,7 @@ func TestSplitBothSmaus(t *testing.T) {
 func TestSplitBothWenzelmann(t *testing.T) {
 	// create a dummy main node to call split on
 	// create some dummy context as well
-	ctx := &lpb.TreeContext{nil, 5}
+	ctx := lpb.NewTreeContext(5)
 	n := lpb.NewMainNode(nil, nil, wenzelmannDNF, nil, ctx)
 	n.SetColumn(0)
 	zeroSplit, oneSplit := lpb.SplitBoth(n, true, false)
@@ -167,10 +166,28 @@ func TestSplitBothWenzelmann(t *testing.T) {
 	}
 }
 
-func TestTreeSmaus(t *testing.T) {
-	tree := lpb.NewSplittingTree(smausDNF, 5, false, true)
-	tree.Root.Split(false, true)
-	tree.Root.GetLowerChild().Split(false, true)
-	fmt.Println(tree.Root.GetLowerChild().GetUpperChild())
-	fmt.Println(tree.Root.GetLowerChild().GetLowerChild())
+func TestSmausMin(t *testing.T) {
+	expected := lpb.NewLPB(5, []lpb.LPBCoeff{4, 3, 2, 2, 1})
+	solver := lpb.NewMinSolver()
+	tree := lpb.NewSplittingTree(smausDNF, 5, true, true)
+	lpb, err := solver.Solve(tree)
+	if err != nil {
+		t.Error("Expected LPB, got an error:", err)
+	}
+	if !lpb.Equals(expected) {
+		t.Errorf("Expected LPB %s and got %s", expected, lpb)
+	}
+}
+
+func TestWenzelmannMin(t *testing.T) {
+	expected := lpb.NewLPB(8, []lpb.LPBCoeff{5, 3, 3, 2, 1})
+	solver := lpb.NewMinSolver()
+	tree := lpb.NewSplittingTree(wenzelmannDNF, 5, true, true)
+	lpb, err := solver.Solve(tree)
+	if err != nil {
+		t.Error("Expected LPB, got an error:", err)
+	}
+	if !lpb.Equals(expected) {
+		t.Errorf("Expected LPB %s and got %s", expected, lpb)
+	}
 }

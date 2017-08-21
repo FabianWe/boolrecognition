@@ -15,6 +15,7 @@
 package lpb
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -27,7 +28,7 @@ type TreeContext struct {
 }
 
 func NewTreeContext(nbvar int) *TreeContext {
-	return &TreeContext{Tree: make([][]SplitNode, nbvar),
+	return &TreeContext{Tree: make([][]SplitNode, nbvar+1),
 		Nbvar: nbvar}
 }
 
@@ -50,16 +51,6 @@ type GenericSplitNode struct {
 
 func NewGenericSplitNode(lp, up SplitNode, phi br.ClauseSet,
 	patterns []*OccurrencePattern, context *TreeContext) *GenericSplitNode {
-	// TODO move all this somewhere else, whoever creates the node!
-	// var column int
-	// switch {
-	// case lp != nil:
-	// 	column = lp.GetColumn() + 1
-	// case up != nil:
-	// 	column = up.GetColumn() + 1
-	// default:
-	// 	column = 0
-	// }
 	node := &GenericSplitNode{LowerParent: lp,
 		UpperParent:  up,
 		LowerChild:   nil,
@@ -70,13 +61,6 @@ func NewGenericSplitNode(lp, up SplitNode, phi br.ClauseSet,
 		Context:      context,
 		Patterns:     patterns,
 		AlreadySplit: false}
-	// TODO check if this is even possible...
-	// if context == nil {
-	// 	node.Row = -1
-	// } else {
-	// 	node.Row = context.AddNode(node)
-	// }
-	// TODO we need to do all this somewhere else!
 	return node
 }
 
@@ -162,7 +146,7 @@ func (n *GenericSplitNode) SetAlreadySplit(val bool) {
 
 // TODO remove methods we don't need!
 type SplitNode interface {
-	Split(symmetryTest, cut bool)
+	Split(symmetryTest, cut bool) error
 
 	IsFinal() bool
 	GetLowerParent() SplitNode
@@ -187,6 +171,24 @@ type SplitNode interface {
 	SetAlreadySplit(val bool)
 }
 
+// RegisterNode will register the node in the context.
+// This method must be called each time a node gets created, so probably
+// in a New... method.
+// It will determine the column and row of the node and set the values
+// on the node.
+func RegisterNode(n SplitNode) {
+	column := 0
+	switch {
+	case n.GetLowerParent() != nil:
+		column = n.GetLowerParent().GetColumn() + 1
+	case n.GetUpperParent() != nil:
+		column = n.GetUpperParent().GetColumn() + 1
+	}
+	n.SetColumn(column)
+	n.GetContext().AddNode(n)
+	// fmt.Printf("Added %s: %s in col %d, row %d\n", reflect.TypeOf(n), n.GetPhi(), n.GetColumn(), n.GetRow())
+}
+
 // dnfFinal is a type used to indacte if a dnf is false,
 // true or neither.
 type dnfFinal int
@@ -202,7 +204,7 @@ func isFinal(phi br.ClauseSet) dnfFinal {
 	if len(phi) == 0 {
 		return IsFalse
 	}
-	if len(phi) == 1 && len(phi[0]) == 1 {
+	if len(phi) == 1 && len(phi[0]) == 0 {
 		return IsTrue
 	}
 	return NotFinal
@@ -216,7 +218,9 @@ type MainNode struct {
 
 func NewMainNode(lp, up SplitNode, phi br.ClauseSet,
 	patterns []*OccurrencePattern, context *TreeContext) *MainNode {
-	return &MainNode{NewGenericSplitNode(lp, up, phi, patterns, context), -1, false}
+	n := &MainNode{NewGenericSplitNode(lp, up, phi, patterns, context), -1, false}
+	RegisterNode(n)
+	return n
 }
 
 func (n *MainNode) calcFinal() {
@@ -233,7 +237,8 @@ func (n *MainNode) IsFinal() bool {
 }
 
 // TODO JGS: cut is being ignored because I don't really understand it :)
-func (n *MainNode) Split(symmetryTest, cut bool) {
+func (n *MainNode) Split(symmetryTest, cut bool) error {
+	n.SetAlreadySplit(true)
 	n.MaxL = ComputeMaxL(n.GetPatterns())
 	nodeVal := isFinal(n.GetPhi())
 	if n.MaxL == 1 {
@@ -244,13 +249,13 @@ func (n *MainNode) Split(symmetryTest, cut bool) {
 				lowerChild := NewMainNode(nil, n, splitRes.Phi, splitRes.Occurrences, n.GetContext())
 				lowerChild.Final = splitRes.Final
 				n.SetLowerChild(lowerChild)
-				return
+				return nil
 			case IsTrue:
 				splitRes := Split(n, 0, true, symmetryTest)
 				upperChild := NewMainNode(n, nil, splitRes.Phi, splitRes.Occurrences, n.GetContext())
 				upperChild.Final = splitRes.Final
 				n.SetUpperChild(upperChild)
-				return
+				return nil
 			}
 		}
 		first, second := SplitBoth(n, true, symmetryTest)
@@ -270,13 +275,13 @@ func (n *MainNode) Split(symmetryTest, cut bool) {
 				lowerChild := NewAuxNode(nil, n, splitRes.Phi, splitRes.Occurrences,
 					n.GetContext(), n.MaxL, 1)
 				n.SetLowerChild(lowerChild)
-				return
+				return nil
 			case IsTrue:
 				splitRes := Split(n, 0, false, symmetryTest)
 				upperChild := NewAuxNode(n, nil, splitRes.Phi, splitRes.Occurrences,
 					n.GetContext(), n.MaxL, 1)
 				n.SetUpperChild(upperChild)
-				return
+				return nil
 			}
 		}
 		first, second := SplitBoth(n, false, symmetryTest)
@@ -289,6 +294,7 @@ func (n *MainNode) Split(symmetryTest, cut bool) {
 			n.GetContext(), n.MaxL, 1)
 		n.SetLowerChild(lowerChild)
 	}
+	return nil
 }
 
 type AuxNode struct {
@@ -299,7 +305,9 @@ type AuxNode struct {
 func NewAuxNode(lp, up SplitNode, phi br.ClauseSet,
 	patterns []*OccurrencePattern, context *TreeContext,
 	lValue, lPrime int) *AuxNode {
-	return &AuxNode{NewGenericSplitNode(lp, up, phi, patterns, context), lValue, lPrime}
+	n := &AuxNode{NewGenericSplitNode(lp, up, phi, patterns, context), lValue, lPrime}
+	RegisterNode(n)
+	return n
 }
 
 func (n *AuxNode) IsFinal() bool {
@@ -310,7 +318,8 @@ func (n *AuxNode) createMainNode() bool {
 	return n.LPrime == (n.LValue - 1)
 }
 
-func (n *AuxNode) Split(symmetryTest, cut bool) {
+func (n *AuxNode) Split(symmetryTest, cut bool) error {
+	n.SetAlreadySplit(true)
 	createBoth := false
 	nodeVal := isFinal(n.GetPhi())
 	if cut {
@@ -327,14 +336,14 @@ func (n *AuxNode) Split(symmetryTest, cut bool) {
 					n.GetContext(), n.LValue, n.LPrime+1)
 				n.SetLowerChild(lowerChild)
 			}
-			return
+			return nil
 		case IsTrue:
 			if n.GetUpperParent().GetUpperChild() == nil {
 				// TODO remove debug once tested thoroughly
 				panic("Debug error: split aux node, upperParent.upperChild is nil!")
 			}
 			n.SetUpperChild(n.GetUpperParent().GetUpperChild().GetLowerChild())
-			return
+			return nil
 		}
 	}
 	if n.GetUpperParent() != nil {
@@ -343,6 +352,10 @@ func (n *AuxNode) Split(symmetryTest, cut bool) {
 			panic("Debug error: split aux node, upperParent.upperChild is nil!")
 		}
 		n.SetUpperChild(n.GetUpperParent().GetUpperChild().GetLowerChild())
+		if n.GetUpperChild() == nil {
+			fmt.Printf("Problem in col %d, row %d, dnf %s\n", n.GetColumn(), n.GetRow(), n.GetPhi())
+			fmt.Println("Upper parent is", n.GetUpperParent().GetPhi())
+		}
 		n.GetUpperChild().SetLowerParent(n)
 	} else {
 		createBoth = true
@@ -392,7 +405,7 @@ func (n *AuxNode) Split(symmetryTest, cut bool) {
 		} else {
 			splitRes := Split(n, 1, false, symmetryTest)
 			lowerChild := NewAuxNode(nil, n, splitRes.Phi, splitRes.Occurrences,
-				n.GetContext(), n.LValue, n.LValue+1)
+				n.GetContext(), n.LValue, n.LPrime+1)
 			n.SetLowerChild(lowerChild)
 		}
 		if symmetryTest {
@@ -409,6 +422,7 @@ func (n *AuxNode) Split(symmetryTest, cut bool) {
 			// then iterate over each element in the slice,
 			// such an implementation is already present in split_test
 			// now that I think of it that should do the trick...
+			// I also implemented the compare method: SortedEquals for Clause
 
 			// here is the code if we would want to receive the result
 			// we computed concurrently
@@ -416,9 +430,15 @@ func (n *AuxNode) Split(symmetryTest, cut bool) {
 			// testDnf := <-ch
 
 			// now test it and so on
+			// if test fails return ErrNotSymmetric
 			// end of this code snippet
+
+			// TODO JGS You implemented this smmyetry test with comparing the DNFs,
+			// does that mean Split and SplitBoth don't really need the symmetry
+			// test variable?
 		}
 	}
+	return nil
 }
 
 type SplitResult struct {
@@ -636,12 +656,16 @@ func SplitBoth(n SplitNode, createPatterns, symmetryTest bool) (*SplitResult, *S
 	return res1, res2
 }
 
+// ErrNotSymmetric may be returned by Split if the symmetric property
+// is violated.
+var ErrNotSymmetric error = errors.New("Found variables that are not symmetric.")
+
 // SplittingTree represents the tree for a DNF.
 type SplittingTree struct {
 	Root                      *MainNode    // The root node
 	Context                   *TreeContext // The context of the tree
 	Renaming, ReverseRenaming []int        // See NewSplittingTree
-	DeleteContent             bool         // If set to true the content of a node (dnf and OPs) are set to nil and deleted by garbage collection
+	SymTest                   bool         // If true the test for symmetric variables is performed
 	Cut                       bool         // TODO JGS Not entirely sure what this is supposed to mean
 }
 
@@ -673,6 +697,9 @@ type SplittingTree struct {
 // and variables start with 0).
 // Also each variable should appear at least once in the DNF, what happens
 // otherwise is not tested yet.
+//
+// By default Cut and SymTest are set to true, so if you want
+// to debug better set it by hand before calling CreateTree.
 func NewSplittingTree(phi br.ClauseSet, nbvar int, sortPatterns, sortClauses bool) *SplittingTree {
 	context := NewTreeContext(nbvar)
 	// setup the patterns and the renamings
@@ -685,14 +712,12 @@ func NewSplittingTree(phi br.ClauseSet, nbvar int, sortPatterns, sortClauses boo
 	root := NewMainNode(nil, nil, newDNF, patterns, context)
 	// compute if node is already final
 	root.calcFinal()
-	// set column for root
-	root.SetColumn(0)
-	// insert root in the context
-	context.AddNode(root)
 	return &SplittingTree{Root: root,
 		Context:         context,
 		Renaming:        renaming,
-		ReverseRenaming: reverseRenaming}
+		ReverseRenaming: reverseRenaming,
+		Cut:             true,
+		SymTest:         true}
 }
 
 // initOPs initializes the occurrence patterns for ϕ.
@@ -740,4 +765,344 @@ func initOPs(phi br.ClauseSet, nbvar int, sortPatterns bool) (br.ClauseSet, []*O
 		wg.Wait()
 	}
 	return newDNF, patterns, renaming, reverseRenaming
+}
+
+// CreateTree creates the whole splitting tree and returns ErrNotSymmetric
+// if the symmetric property was violated.
+//
+// Think about a concurrent approach?
+func (t *SplittingTree) CreateTree() error {
+	// initialize the queue, we initialize it with some size
+	// not a very good sice probably but it's something
+	waiting := make([]SplitNode, 0, t.Root.GetContext().Nbvar)
+	// add root node to queue
+	waiting = append(waiting, t.Root)
+	// loop while queue not empty
+	for len(waiting) > 0 {
+		// get next element
+		next := waiting[0]
+		waiting[0] = nil
+		waiting = waiting[1:]
+		if next.IsFinal() || next.IsAlreadySplit() {
+			continue
+		}
+		if err := next.Split(t.SymTest, t.Cut); err != nil {
+			return err
+		}
+		child1, child2 := next.GetUpperChild(), next.GetLowerChild()
+		if child1 != nil && !child1.IsAlreadySplit() {
+			waiting = append(waiting, child1)
+		}
+		if child2 != nil && !child2.IsAlreadySplit() {
+			waiting = append(waiting, child2)
+		}
+	}
+	return nil
+}
+
+// Interval defines an of the form interval (a, b].
+// a and b are natural numbers, but we allow ∞ and -∞ as well.
+//
+// We will also used it sometimes if we just need a pair of numbers.
+type Interval struct {
+	LHS, RHS LPBCoeff
+}
+
+func NewInterval(lhs, rhs LPBCoeff) Interval {
+	return Interval{lhs, rhs}
+}
+
+func (i Interval) String() string {
+	return fmt.Sprintf("(%s, %s]", i.LHS, i.RHS)
+}
+
+// TreeSolver is an interface for everything that can transform a
+// tree into an LPB or returns an error if that is not possible.
+//
+// The tree is not fully created when passed to Solve, i.e. it has to be created
+// with CreateTree.
+type TreeSolver interface {
+	Solve(t *SplittingTree) (*LPB, error)
+}
+
+// SolverState provides the solver with certain information about the current
+// search space, like current coefficients and so on.
+type SolverState struct {
+	Coefficients    []LPBCoeff   // The coefficients for each column, must be multiplied with the coeff factor.
+	CoeffSums       []LPBCoeff   // Stores the sum of all coefficients including column k, gets updated in SetCoeff
+	Intervals       [][]Interval // For each column contains all intervals in the tree
+	IntervalFactors []int        // Factor intervals in a certain column must be multiplied with.
+}
+
+// NewSolverState a new solver space that sets all factors to one and
+// intervals big enough to contain all intervals for the tree.
+func NewSolverState(t *SplittingTree) *SolverState {
+	size := t.Context.Nbvar + 1
+	coefficients := make([]LPBCoeff, size)
+	coeffSums := make([]LPBCoeff, size)
+	intervals := make([][]Interval, size)
+	intervalFactors := make([]int, size)
+	// initialize all factors with one, for intervals create a slice for each
+	// column that is big enough to hold all values
+	for i := 0; i < size; i++ {
+		coefficients[i] = NegativeInfinity // just something that is not a number
+		coeffSums[i] = 0
+		intervalFactors[i] = 1
+		numRows := len(t.Context.Tree[i])
+		intervals[i] = make([]Interval, numRows)
+	}
+	return &SolverState{Coefficients: coefficients,
+		CoeffSums:       coeffSums,
+		Intervals:       intervals,
+		IntervalFactors: intervalFactors}
+}
+
+// SetCoeff sets the coefficient in the specified column, also updating the
+// coefficient sum in that column.
+func (s *SolverState) SetCoeff(column int, val LPBCoeff) {
+	s.Coefficients[column] = val
+	// in the last column there is no value to add
+	if column == len(s.CoeffSums)-1 {
+		s.CoeffSums[column] = val
+	} else {
+		s.CoeffSums[column] = s.CoeffSums[column+1].Add(val)
+	}
+}
+
+// GetSumAfter returns the sum of all coefficients *after* the specified column,
+// so not including this column.
+func (s *SolverState) GetSumAfter(column int) LPBCoeff {
+	if column == len(s.CoeffSums)-1 {
+		return 0
+	}
+	return s.CoeffSums[column+1]
+}
+
+// GetInterval returns the current interval value taking into consideration
+// the intervals for that column.
+// Note that a new interval gets returned, so chaning the value you receive
+// won't change anything here.
+func (s *SolverState) GetInterval(column, row int) Interval {
+	current := s.Intervals[column][row]
+	factor := LPBCoeff(s.IntervalFactors[column])
+	return NewInterval(current.LHS.Mult(factor), current.RHS.Mult(factor))
+}
+
+// SolveConflict solves a conflict of the form α < α_{k+1} < α + 1.
+// It simply doubles the whole system (intervals and coefficients).
+//
+// If we are forced to solve a conflict in column k this means that we have
+// to double all the intervals in column k and all following and all
+// coefficients starting in column k + 1 (we haven't set a coefficient for k
+// yet).
+func (s *SolverState) SolveConflict(column int) {
+	s.IntervalFactors[column] *= 2
+	for k := column + 1; k < len(s.Coefficients); k++ {
+		s.Coefficients[k] = s.Coefficients[k].Mult(2)
+		s.CoeffSums[k] = s.Coefficients[k].Mult(2)
+		s.IntervalFactors[k] *= 2
+	}
+}
+
+// ColumnHandler is used to choose coefficients (coefficients α s.t. a < α < b)
+// and the degree of the LPB // given an interval (a, b] and additional
+// information such as the tree.
+//
+// It also must handle the columns with the HandleColumn function.
+// This function takes the column that should be handled next. By handling we
+// mean that it must compute all the intervals in that column and return the
+// values a, b in which we must choose the coefficient (i.e. choose α s.t.
+// a < α < b). If column = 0 we don't have to choose a coefficient, so in this
+// case it may return whatever it wants.
+//
+// If you need more information than what is stored in the solver state this
+// would be the right place, simply add all the information you need in your
+// own type and make sure they're handled correctly.
+// Of course you can also just implement your own solver at your will if none
+// of the provided ones fits your purposes.
+// When implementing your own chooser you should check the ComputeInterval
+// function that computes the interval for a given node in the tree.
+// MinColumnHandler is an example of such an implementation.
+//
+// All solving algorithms should make sure that these functions get only called
+// with valid intervals, i.e. there must be a valid coefficient to choose.
+// So implementations here must not check that a < b or something like that.
+// Also it is not possible that we have a conflict of the form b = a + 1, this
+// must be checked in another place.
+//
+// The Init function gets called each the handler should be initialized for a
+// new tree.
+type ColumnHandler interface {
+	Init(t *SplittingTree)
+	ChooseCoeff(i Interval, s *SolverState, t *SplittingTree, column int) (LPBCoeff, error)
+	ChooseDegree(i Interval, s *SolverState, t *SplittingTree) (LPBCoeff, error)
+	HandleColumn(s *SolverState, t *SplittingTree, column int) Interval
+}
+
+// ComputeInterval will compute the interval for the node in the specified
+// column and row.
+// For true and false the intervals are easy, for everything else the intervals
+// and coefficient in the next column are looked at and s and b get computed
+// accordingly.
+//
+// It will also set the interval in s.
+func ComputeInterval(s *SolverState, t *SplittingTree, column, row int) Interval {
+	var res Interval
+	// get the node
+	n := t.Root.GetContext().Tree[column][row]
+	// check if dnf is true, false or something else
+	sumSoFar := s.GetSumAfter(column)
+	// TODO here were some asserts in the C++ code that don't make sense to me
+	switch isFinal(n.GetPhi()) {
+	case IsTrue:
+		res = NewInterval(NegativeInfinity, 0)
+	case IsFalse:
+		res = NewInterval(sumSoFar, PositiveInfinity)
+	default:
+		uc := n.GetUpperChild()
+		lc := n.GetLowerChild()
+		switch {
+		case uc == nil:
+			res = NewInterval(sumSoFar, PositiveInfinity)
+		case lc == nil:
+			res = NewInterval(NegativeInfinity, 0)
+		default:
+			// neither is nil, so get the saved intervals
+			// uc and lc column must be column+1
+			upper := s.GetInterval(column+1, uc.GetRow())
+			lower := s.GetInterval(column+1, lc.GetRow())
+			s0, b0, s1, b1 := upper.LHS, upper.RHS, lower.LHS, lower.RHS
+			lastCoeff := s.Coefficients[column+1]
+			s := CoeffMax(s0, s1.Add(lastCoeff))
+			b := CoeffMin(b0, b1.Add(lastCoeff))
+			res = NewInterval(s, b)
+		}
+	}
+	s.Intervals[column][row] = res
+	return res
+}
+
+// degreeError is a small helper function that provides an error with the
+// message that we can't choose a value that satisfies the conditions.
+// I.e. we can't find a value α with a < α < b.
+func degreeError(i Interval) error {
+	return fmt.Errorf("Can't choose a value α s.t. %s < α < %s", i.LHS, i.RHS)
+}
+
+type MinColumnHandler struct{}
+
+func NewMinColumnHandler() MinColumnHandler {
+	return MinColumnHandler{}
+}
+
+func (handler MinColumnHandler) Init(t *SplittingTree) {
+	// do nothing, no setup required
+}
+
+func (handler MinColumnHandler) ChooseCoeff(i Interval, s *SolverState, t *SplittingTree, column int) (LPBCoeff, error) {
+	// we don't have to check if a < b or anything, this will already be done,
+	// we just check for some weird cases... not entirely sure which of them
+	// can ever happen
+	switch i.LHS {
+	case PositiveInfinity:
+		return -1, degreeError(i)
+	case NegativeInfinity:
+		return 0, nil
+	default:
+		return i.LHS + 1, nil
+	}
+}
+
+func (handler MinColumnHandler) ChooseDegree(i Interval, s *SolverState, t *SplittingTree) (LPBCoeff, error) {
+	return handler.ChooseCoeff(i, s, t, -1)
+}
+
+func (handler MinColumnHandler) HandleColumn(s *SolverState, t *SplittingTree, column int) Interval {
+	treeColumn := t.Root.GetContext().Tree[column]
+	minSoFar := PositiveInfinity
+	maxSoFar := NegativeInfinity
+	// compute first interval for that column
+	// we will need the last variable later to update the max and min
+	// so we will later refer to last as "the interval before", that's why it
+	// is called so
+	last := ComputeInterval(s, t, column, 0)
+	// iterate over all other rows
+	numRows := len(treeColumn)
+	for row := 1; row < numRows; row++ {
+		current := ComputeInterval(s, t, column, row)
+		n := treeColumn[row]
+		if n.GetUpperParent() != nil { // TODO this is simpler than in C++, but should be ok? If it has an upper parent we must compare?
+			diff1 := last.LHS.Sub(current.RHS)
+			diff2 := last.RHS.Sub(current.LHS)
+			maxSoFar = CoeffMax(maxSoFar, diff1)
+			minSoFar = CoeffMin(minSoFar, diff2)
+			// fmt.Printf("Min: %s - %s = %s\tMax: %s - %s = %s\n", last.RHS, current.LHS, diff2, last.LHS, current.RHS, diff1)
+		}
+		last = current
+	}
+	return NewInterval(maxSoFar, minSoFar)
+}
+
+type SimpleTreeSolver struct {
+	handler ColumnHandler
+	s       *SolverState
+}
+
+func NewSimpleTreeSolver(handler ColumnHandler) SimpleTreeSolver {
+	return SimpleTreeSolver{handler: handler, s: nil}
+}
+
+func NewMinSolver() TreeSolver {
+	return NewSimpleTreeSolver(NewMinColumnHandler())
+}
+
+func (solver SimpleTreeSolver) Solve(t *SplittingTree) (*LPB, error) {
+	if err := t.CreateTree(); err != nil {
+		return nil, err
+	}
+	solver.handler.Init(t)
+	solver.s = NewSolverState(t)
+	k := len(solver.s.Coefficients) - 1
+	for k >= 0 {
+		interval := solver.handler.HandleColumn(solver.s, t, k)
+		if k == 0 {
+			k--
+			continue
+		}
+		// check if the interval makes sense, i.e. we don't have a conflict
+		// and there is a possible solution
+		// of course this must not be done in the first column
+		max, min := interval.LHS, interval.RHS
+		switch {
+		case max.Add(1).Equals(min):
+			// conflict, solve it!
+			solver.s.SolveConflict(k)
+			// multiply interval with 2
+			interval.LHS *= 2
+			interval.RHS *= 2
+		case max.Compare(min) >= 0:
+			// we can't choose a coefficient here!
+			return nil, degreeError(interval)
+		}
+		// if we have reached this point we can choose a coefficient!
+		coeff, chooseErr := solver.handler.ChooseCoeff(interval, solver.s, t, k)
+		if chooseErr != nil {
+			return nil, chooseErr
+		}
+		// now we can set the new coefficient
+		solver.s.SetCoeff(k, coeff)
+		k--
+	}
+	// once we reach this point we can choose the degree
+	// first however we have to check if the interval is invalid
+	rootInterval := solver.s.GetInterval(0, 0)
+	if rootInterval.LHS.Compare(rootInterval.RHS) >= 0 {
+		return nil, fmt.Errorf("Can't choose a degree in the interval %s", rootInterval)
+	}
+	degree, chooseErr := solver.handler.ChooseDegree(rootInterval, solver.s, t)
+	if chooseErr != nil {
+		return nil, chooseErr
+	}
+	// success, return the LPB!
+	return NewLPB(degree, solver.s.Coefficients[1:]), nil
 }

@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	br "github.com/FabianWe/boolrecognition"
 )
 
 // LPBCoeff is the type used for integers in an LPB, i.e. for coefficients and
@@ -173,9 +175,9 @@ func (val1 LPBCoeff) Equals(val2 LPBCoeff) bool {
 	return val1 == val2
 }
 
-// Less returns true iff val1 < val2.
+// Lesser returns true iff val1 < val2.
 // This is the case iff val.Compare(val2) < 0.
-func (val1 LPBCoeff) Less(val2 LPBCoeff) bool {
+func (val1 LPBCoeff) Lesser(val2 LPBCoeff) bool {
 	return val1.Compare(val2) < 0
 }
 
@@ -183,6 +185,22 @@ func (val1 LPBCoeff) Less(val2 LPBCoeff) bool {
 // This is the case iff val1.Compare(val2) > 0.
 func (val1 LPBCoeff) Greater(val2 LPBCoeff) bool {
 	return val1.Compare(val2) > 0
+}
+
+// CoeffMax returns the maximum of both arguments.
+func CoeffMax(val1, val2 LPBCoeff) LPBCoeff {
+	if val1.Greater(val2) {
+		return val1
+	}
+	return val2
+}
+
+// CoeffMin returns the minimum of both arguments.
+func CoeffMin(val1, val2 LPBCoeff) LPBCoeff {
+	if val1.Lesser(val2) {
+		return val1
+	}
+	return val2
 }
 
 // LPB represents an LPB of the form a_1 ⋅ x_1 + ... + a_n ⋅ x_n ≥ d
@@ -253,4 +271,48 @@ func (lpb *LPB) String() string {
 	}
 	fmt.Fprintf(buffer, " ≥ %s", lpb.Threshold)
 	return buffer.String()
+}
+
+// Equals checks if to LPBs are syntactically equal.
+func (lpb *LPB) Equals(other *LPB) bool {
+	if !lpb.Threshold.Equals(other.Threshold) {
+		return false
+	}
+	// compare the coefficients
+	if lpb.Coefficients == nil && other.Coefficients == nil {
+		return true
+	}
+	if lpb.Coefficients == nil || other.Coefficients == nil {
+		return false
+	}
+	if len(lpb.Coefficients) != len(other.Coefficients) {
+		return false
+	}
+	for i, val := range lpb.Coefficients {
+		if !val.Equals(other.Coefficients[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func (lpb *LPB) ToDNF() br.ClauseSet {
+	res := br.NewClauseSet(10)
+	var sum LPBCoeff = 0
+	for _, coeff := range lpb.Coefficients {
+		sum = sum.Add(coeff)
+	}
+	// check if it represents false
+	if sum.Lesser(lpb.Threshold) {
+		// res is empty, so that's fine
+		return res
+	}
+	// check if it represents true
+	if lpb.Threshold.Compare(0) <= 0 {
+		// add an empty clause
+		c := br.NewClause(0)
+		res = append(res, c)
+		return res
+	}
+	return res
 }
