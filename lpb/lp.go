@@ -263,6 +263,18 @@ func (tree *DNFTree) IsRegular(mtps []br.BooleanVector) bool {
 	return res
 }
 
+// TightenMode describes different modes to tighten the linear program
+// before solving it.
+//
+// There are three different modes described below.
+type TightenMode int
+
+const (
+	TightenNone       TightenMode = iota // Add only constraings necessary for solving the problem
+	TightenNeighbours                    // Add also constraings between variables x(i) and x(i + 1)
+	TightenAll                           // Add additional constraints between all variable pairs
+)
+
 type LinearProgram struct {
 	Renaming, ReverseRenaming []int
 	SymTest                   bool
