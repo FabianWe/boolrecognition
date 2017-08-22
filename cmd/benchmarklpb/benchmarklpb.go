@@ -119,7 +119,7 @@ func runTest(lpbs []*lpb.LPB, dnfs []br.ClauseSet, n int, verify bool) (avg floa
 			start := time.Now()
 			// create tree and try to solve
 			tree := lpb.NewSplittingTree(phi, len(lpbs[i].Coefficients), true, true)
-			tree.Cut = false
+			tree.Cut = true
 			computedLPB, convErr := solver.Solve(tree)
 			dur := time.Since(start)
 			ok := true
