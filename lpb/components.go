@@ -296,6 +296,11 @@ func (lpb *LPB) Equals(other *LPB) bool {
 	return true
 }
 
+// ToDNF transforms an LPB to a DNF, algorithm as described in my bachelor
+// thesis.
+//
+// This function assumes that the LPB is sorted, i.e. the first value in the
+// coefficients is the greatest etc.
 func (lpb *LPB) ToDNF() br.ClauseSet {
 	res := br.NewClauseSet(10)
 	var sum LPBCoeff = 0
@@ -313,6 +318,40 @@ func (lpb *LPB) ToDNF() br.ClauseSet {
 		c := br.NewClause(0)
 		res = append(res, c)
 		return res
+	}
+
+	type setValuePair struct {
+		variables []int
+		sum       LPBCoeff
+		nextIndex int
+	}
+	degree := lpb.Threshold
+	incompleteClauses := []*setValuePair{&setValuePair{nil, 0, 0}}
+
+	for len(incompleteClauses) != 0 {
+		next := incompleteClauses[0]
+		incompleteClauses[0] = nil
+		incompleteClauses = incompleteClauses[1:]
+
+		if next.sum >= degree {
+			clause := br.NewClause(len(next.variables))
+			for _, v := range next.variables {
+				clause = append(clause, v)
+			}
+			res = append(res, clause)
+		} else {
+			nextInd := next.nextIndex
+			for i := nextInd; i < len(lpb.Coefficients); i++ {
+				// copy variables
+				newVariables := make([]int, len(next.variables), len(next.variables)+1)
+				copy(newVariables, next.variables)
+				newVariables = append(newVariables, i)
+				newIndex := i + 1
+				newSum := next.sum + lpb.Coefficients[i]
+				newPair := &setValuePair{newVariables, newSum, newIndex}
+				incompleteClauses = append(incompleteClauses, newPair)
+			}
+		}
 	}
 	return res
 }

@@ -111,6 +111,8 @@ func (phi ClauseSet) SortAll() {
 // SortedEquals is a simple equality check for clause sets.
 // It does compare literally each clause in the sets and checks if
 // they're equal, therefore they should be sorted.
+//
+// Also the clauses must be in the some ordering.
 func (phi ClauseSet) SortedEquals(other ClauseSet) bool {
 	if len(phi) != len(other) {
 		return false

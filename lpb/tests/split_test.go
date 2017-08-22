@@ -191,3 +191,5 @@ func TestWenzelmannMin(t *testing.T) {
 		t.Errorf("Expected LPB %s and got %s", expected, lpb)
 	}
 }
+
+// TODO test true and false!

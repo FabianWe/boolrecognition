@@ -14,7 +14,24 @@
 
 package tests
 
-//
-// func TestConvertFalse(t *testing.T) {
-// 	t.Error("foo")
-// }
+import (
+	"testing"
+
+	"github.com/FabianWe/boolrecognition/lpb"
+)
+
+func TestConvertFalse(t *testing.T) {
+	falseLPB := lpb.NewLPB(10, []lpb.LPBCoeff{1, 1, 1, 3})
+	res := falseLPB.ToDNF()
+	if len(res) != 0 {
+		t.Errorf("LPB %s should be false, but got DNF %s", falseLPB, res)
+	}
+}
+
+func TestConvertTrue(t *testing.T) {
+	trueLPB := lpb.NewLPB(0, []lpb.LPBCoeff{})
+	res := trueLPB.ToDNF()
+	if !(len(res) == 1 && len(res[0]) == 0) {
+		t.Errorf("LPB %s should be true, but got DNF %s", trueLPB, res)
+	}
+}
