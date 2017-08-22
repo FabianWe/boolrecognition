@@ -825,6 +825,13 @@ type TreeSolver interface {
 	Solve(t *SplittingTree) (*LPB, error)
 }
 
+type CombinatorialSolver struct {
+	solver TreeSolver
+}
+
+// TODO implement the Solve method... rename variables again if required
+// bla bla bla
+
 // SolverState provides the solver with certain information about the current
 // search space, like current coefficients and so on.
 type SolverState struct {
@@ -899,7 +906,7 @@ func (s *SolverState) SolveConflict(column int) {
 	s.IntervalFactors[column] *= 2
 	for k := column + 1; k < len(s.Coefficients); k++ {
 		s.Coefficients[k] = s.Coefficients[k].Mult(2)
-		s.CoeffSums[k] = s.Coefficients[k].Mult(2)
+		s.CoeffSums[k] = s.CoeffSums[k].Mult(2)
 		s.IntervalFactors[k] *= 2
 	}
 }
@@ -1009,12 +1016,12 @@ func (handler MinColumnHandler) ChooseCoeff(i Interval, s *SolverState, t *Split
 	case NegativeInfinity:
 		return 0, nil
 	default:
-		return i.LHS + 1, nil
+		return i.LHS.Add(1), nil
 	}
 }
 
 func (handler MinColumnHandler) ChooseDegree(i Interval, s *SolverState, t *SplittingTree) (LPBCoeff, error) {
-	return handler.ChooseCoeff(i, s, t, -1)
+	return i.LHS.Add(1), nil
 }
 
 func (handler MinColumnHandler) HandleColumn(s *SolverState, t *SplittingTree, column int) Interval {
@@ -1031,7 +1038,7 @@ func (handler MinColumnHandler) HandleColumn(s *SolverState, t *SplittingTree, c
 	for row := 1; row < numRows; row++ {
 		current := ComputeInterval(s, t, column, row)
 		n := treeColumn[row]
-		if n.GetUpperParent() != nil { // TODO this is simpler than in C++, but should be ok? If it has an upper parent we must compare?
+		if n.GetUpperParent() != nil && n.GetUpperParent().GetUpperChild() != nil { // TODO this is simpler than in C++, but should be ok? If it has an upper parent we must compare?
 			diff1 := last.LHS.Sub(current.RHS)
 			diff2 := last.RHS.Sub(current.LHS)
 			maxSoFar = CoeffMax(maxSoFar, diff1)

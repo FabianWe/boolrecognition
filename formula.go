@@ -15,6 +15,7 @@
 package boolrecognition
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -119,16 +120,56 @@ func (phi ClauseSet) SortedEquals(other ClauseSet) bool {
 	}
 	for i, clause := range phi {
 		otherClause := other[i]
-		if len(clause) != len(otherClause) {
+		if !equalSortedClause(clause, otherClause) {
 			return false
-		}
-		for j, val1 := range clause {
-			if val1 != otherClause[j] {
-				return false
-			}
 		}
 	}
 	return true
+}
+
+func equalSortedClause(c1, c2 Clause) bool {
+	if len(c1) != len(c2) {
+		return false
+	}
+	for i, val1 := range c1 {
+		if val1 != c2[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (phi ClauseSet) DeepSortedEquals(other ClauseSet) bool {
+	if len(phi) != len(other) {
+		return false
+	}
+	// a small helper
+	// it checks for each clause in phi1 if this clause is also present somewhere
+	// in phi2
+	f := func(phi1, phi2 ClauseSet) bool {
+		for _, c1 := range phi1 {
+			found := false
+			for _, c2 := range phi2 {
+				if equalSortedClause(c1, c2) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
+	}
+	// make the subset test in both directions concurrently
+	resChan := make(chan bool, 2)
+	go func() {
+		resChan <- f(phi, other)
+	}()
+	go func() {
+		resChan <- f(other, phi)
+	}()
+	return <-resChan && <-resChan
 }
 
 // positiveDimacsParser is a type that implements dimacscnf.DimacsParserHandler
@@ -191,4 +232,36 @@ func ParsePositiveDIMACS(r io.Reader) (string, int, ClauseSet, error) {
 		return "", -1, nil, err
 	}
 	return h.problem, h.nbvar, h.clauses, nil
+}
+
+// WriteDIMACS writes the DNF in DIMACS format to the writer.
+//
+// nbvar must be the number of variables in the DNF. If zeroBased is true
+// we add 1 to each variable before writing (in DIMACS variables always
+// start with 1).
+func (phi ClauseSet) WriteDIMACS(w io.Writer, nbvar int, zeroBased bool) error {
+	buffer := bufio.NewWriter(w)
+	if _, err := fmt.Fprintln(buffer, "p dnf", nbvar, len(phi)); err != nil {
+		return err
+	}
+	for _, clause := range phi {
+		if len(clause) == 0 {
+			if _, err := fmt.Fprintln(buffer, 0); err != nil {
+				return err
+			}
+		} else {
+			for _, v := range clause {
+				if zeroBased {
+					v += 1
+				}
+				if _, err := fmt.Fprint(buffer, v, " "); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprintln(buffer, 0); err != nil {
+				return err
+			}
+		}
+	}
+	return buffer.Flush()
 }

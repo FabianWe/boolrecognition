@@ -228,7 +228,7 @@ func NewLPB(threshold LPBCoeff, coefficients []LPBCoeff) *LPB {
 //
 // The syntax for parsing LPBs is as follows:
 // First all the coefficients are separated by a space, then the threshold
-// folows, also separated by a space.
+// follows, also separated by a space.
 //
 // So the LPB 2 ⋅ x1 + 1 ⋅ x2 + 1 ⋅ x3 ≥ 2 is represented by "2 1 1 2".
 func ParseLPB(str string) (*LPB, error) {
@@ -354,4 +354,12 @@ func (lpb *LPB) ToDNF() br.ClauseSet {
 		}
 	}
 	return res
+}
+
+// DNFToLPB is an interface that provides a single method Convert.
+// This method creates a DNF representation from a DNF ϕ.
+// Note that some solvers might have restrictions on how the DNF must be
+// composed (for example variables must be sorted).
+type DNFToLPB interface {
+	Convert(phi br.ClauseSet, nbvar int) (*LPB, error)
 }
