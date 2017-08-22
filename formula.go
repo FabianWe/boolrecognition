@@ -265,3 +265,34 @@ func (phi ClauseSet) WriteDIMACS(w io.Writer, nbvar int, zeroBased bool) error {
 	}
 	return buffer.Flush()
 }
+
+type BooleanVector []bool
+
+func NewBooleanVector(size int) BooleanVector {
+	return make([]bool, size)
+}
+
+func (vector BooleanVector) String() string {
+	buffer := new(bytes.Buffer)
+
+	if len(vector) == 0 {
+		buffer.WriteString("()")
+	} else {
+		buffer.WriteRune('(')
+		if vector[0] {
+			buffer.WriteRune('1')
+		} else {
+			buffer.WriteRune('0')
+		}
+		for _, v := range vector[1:] {
+			buffer.WriteString(", ")
+			if v {
+				buffer.WriteRune('1')
+			} else {
+				buffer.WriteRune('0')
+			}
+		}
+		buffer.WriteRune(')')
+	}
+	return buffer.String()
+}
