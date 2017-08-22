@@ -363,3 +363,24 @@ func (lpb *LPB) ToDNF() br.ClauseSet {
 type DNFToLPB interface {
 	Convert(phi br.ClauseSet, nbvar int) (*LPB, error)
 }
+
+// dnfFinal is a type used to indacte if a dnf is false,
+// true or neither.
+type dnfFinal int
+
+const (
+	IsFalse dnfFinal = iota
+	IsTrue
+	NotFinal
+)
+
+// isFinal checks if a dnf is false, true or neither.
+func isFinal(phi br.ClauseSet) dnfFinal {
+	if len(phi) == 0 {
+		return IsFalse
+	}
+	if len(phi) == 1 && len(phi[0]) == 0 {
+		return IsTrue
+	}
+	return NotFinal
+}

@@ -272,6 +272,14 @@ func NewBooleanVector(size int) BooleanVector {
 	return make([]bool, size)
 }
 
+// Clone returns a new boolean vector initialized with the contents of
+// this vector.
+func (vector BooleanVector) Clone() BooleanVector {
+	newPoint := make([]bool, len(vector))
+	copy(newPoint, vector)
+	return newPoint
+}
+
 func (vector BooleanVector) String() string {
 	buffer := new(bytes.Buffer)
 

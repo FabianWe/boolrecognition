@@ -189,27 +189,6 @@ func RegisterNode(n SplitNode) {
 	// fmt.Printf("Added %s: %s in col %d, row %d\n", reflect.TypeOf(n), n.GetPhi(), n.GetColumn(), n.GetRow())
 }
 
-// dnfFinal is a type used to indacte if a dnf is false,
-// true or neither.
-type dnfFinal int
-
-const (
-	IsFalse dnfFinal = iota
-	IsTrue
-	NotFinal
-)
-
-// isFinal checks if a dnf is false, true or neither.
-func isFinal(phi br.ClauseSet) dnfFinal {
-	if len(phi) == 0 {
-		return IsFalse
-	}
-	if len(phi) == 1 && len(phi[0]) == 0 {
-		return IsTrue
-	}
-	return NotFinal
-}
-
 type MainNode struct {
 	*GenericSplitNode
 	MaxL  int
@@ -670,6 +649,10 @@ type SplittingTree struct {
 }
 
 // NewSplittingTree creates a new tree given the DNF ϕ.
+//
+// It will however not create the whole tree, this must be done somewhere
+// else, it only creates the root node.
+//
 // Important note: For our algorithm to work the variables must be sorted
 // according to their importance. Since this is not always the case (only
 // during testing and some very special cases) this method will do this for
@@ -686,6 +669,7 @@ type SplittingTree struct {
 // the patterns will work properly but the patterns don't get sorted.
 // That is only set it to false if you know that the ordering of the variables
 // is already correct.
+// Renaming and ReverseRenaming will be set to nil in this case.
 //
 // Also the clauses in the DNF must be sorted in increasing order.
 // If you don't want the clauses to get sorted set sortClauses to false.
@@ -725,21 +709,21 @@ func NewSplittingTree(phi br.ClauseSet, nbvar int, sortPatterns, sortClauses boo
 // It will also compute Renaming and ReverseRenaming as discussed in
 // NewSplittingTree.
 //
-// It returns first the renamedDNF, the patterns, then Renaming and then ReverseRenaming.
+// It returns first the renamedDNF, the patterns, then Renaming and then
+// ReverseRenaming.
 // If sortPatterns is false the old dnf will be returned.
-//
-// TODO never tested, but seems reasonable
 func initOPs(phi br.ClauseSet, nbvar int, sortPatterns bool) (br.ClauseSet, []*OccurrencePattern, []int, []int) {
 	newDNF := phi
 	// intialize the renaming stuff
-	renaming := make([]int, nbvar)
-	reverseRenaming := make([]int, nbvar)
+	var renaming, reverseRenaming []int = nil, nil
 	// initialize the occurrence patterns for the DNF
 	patterns := OPFromDNF(phi, nbvar)
 	// sort each pattern
 	SortAll(patterns)
 	// sort the pattern slice only if sortPatterns is set
 	if sortPatterns {
+		renaming = make([]int, nbvar)
+		reverseRenaming = make([]int, nbvar)
 		SortPatterns(patterns)
 		// now also create the mappings
 		for newVariableId, pattern := range patterns {

@@ -68,14 +68,14 @@ func NewWinderMatrix(phi ClauseSet, nbvar int, create bool) WinderMatrix {
 		res[i][nbvar] = i
 	}
 	if create {
-		res.create(phi)
+		res.Create(phi)
 	}
 	return res
 }
 
-// create initializes the matrix with the DNF ϕ, that is it sets up the
+// Create initializes the matrix with the DNF ϕ, that is it sets up the
 // correct occurrences in the matrix.
-func (matrix WinderMatrix) create(phi ClauseSet) {
+func (matrix WinderMatrix) Create(phi ClauseSet) {
 	for _, clause := range phi {
 		length := len(clause)
 		for _, v := range clause {
