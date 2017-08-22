@@ -16,6 +16,7 @@
 package lpb
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 
@@ -380,6 +381,8 @@ func ComputeMTPs(phi br.ClauseSet, nbvar int) []br.BooleanVector {
 	return res
 }
 
+// TODO test this with 0, I don't know what happens to the wait group
+// otherwise, or just never call it with a DNF with zero clauses
 func ComputeMFPs(mtps []br.BooleanVector, sortPoints bool) []br.BooleanVector {
 	// first sort the mtps
 	if sortPoints {
@@ -408,8 +411,9 @@ func ComputeMFPs(mtps []br.BooleanVector, sortPoints bool) []br.BooleanVector {
 	}
 	// compute nu, we do this concurrently
 	var wg sync.WaitGroup
-	wg.Add(len(mtps))
+	wg.Add(len(mtps) - 1)
 	nu := make([]int, len(mtps))
+	fmt.Println(len(mtps))
 	for i := 1; i < len(mtps); i++ {
 		go func(index int) {
 			vars := len(mtps[index])
