@@ -16,11 +16,14 @@
 package lpb
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 
 	br "github.com/FabianWe/boolrecognition"
+	"github.com/draffensperger/golp"
 )
 
 // debug is used to panic in some conditions, if tested properly set to false.
@@ -277,9 +280,12 @@ const (
 
 type LinearProgram struct {
 	Renaming, ReverseRenaming []int
-	SymTest                   bool
 	Tree                      *DNFTree
 	Winder                    br.WinderMatrix
+	LP                        *golp.LP
+	MFPs, MTPs                []br.BooleanVector
+	Phi                       br.ClauseSet
+	Nbvar                     int
 }
 
 // NewLinearProgram creates a new lp given the DNF ϕ.
@@ -310,13 +316,12 @@ type LinearProgram struct {
 // Of course this only makes sense if also sortMatrix is set to false,
 // otherwise the new dnf might not be sorted.
 // This functions will sort them in this case nonetheless.
-// TODO is this correct? I guess we need it later...
 //
 // The variables in the DNF have to be 0 <= v < nbar (so nbvar must be correct
 // and variables start with 0).
 // Also each variable should appear at least once in the DNF, what happens
 // otherwise is not tested yet.
-func NewLinearProgram(phi br.ClauseSet, nbvar int, sortMatrix, sortClauses bool) *LinearProgram {
+func NewLinearProgram(phi br.ClauseSet, nbvar int, sortMatrix, sortClauses, regTest bool) *LinearProgram {
 	tree := NewDNFTree(nbvar)
 	newDNF, winder, renaming, reverseRenaming := initLP(phi, nbvar, sortMatrix)
 	if sortMatrix || sortClauses {
@@ -332,7 +337,13 @@ func NewLinearProgram(phi br.ClauseSet, nbvar int, sortMatrix, sortClauses bool)
 	return &LinearProgram{Renaming: renaming,
 		ReverseRenaming: reverseRenaming,
 		Tree:            tree,
-		Winder:          winder}
+		Winder:          winder,
+		LP:              nil,
+		MFPs:            nil,
+		MTPs:            nil,
+		Phi:             newDNF,
+		Nbvar:           nbvar,
+	}
 }
 
 // initLP initializes the lp, that is it creates the Winder matrix for
@@ -376,6 +387,30 @@ func initLP(phi br.ClauseSet, nbvar int, sortMatrix bool) (br.ClauseSet, br.Wind
 		wg.Wait()
 	}
 	return newDNF, winder, renaming, reverseRenaming
+}
+
+func (lp LinearProgram) Solve(tighten TightenMode, regTest bool) (*LPB, error) {
+	// create minimal true points
+	mtps := ComputeMTPs(lp.Phi, lp.Nbvar)
+	lp.MTPs = mtps
+	// if regularity test should be beformed create the DNF tree
+	if regTest {
+		lp.Tree.BuildTree()
+		if !lp.Tree.IsRegular(mtps) {
+			return nil, errors.New("DNF is not regular")
+		}
+	}
+	// compute maximal false points
+	mfps := ComputeMFPs(mtps, true)
+	lp.MFPs = mfps
+	// setup the linear program
+	program, setupErr := FormulateLP(mtps, mfps, lp.Nbvar, lp.Winder, tighten)
+	if setupErr != nil {
+		return nil, setupErr
+	}
+	lp.LP = program
+	// try to convert it
+	return SolveLP(program)
 }
 
 // ComputeMTPs computes the set of minimal true points of a minimal ϕ.
@@ -425,7 +460,6 @@ func ComputeMFPs(mtps []br.BooleanVector, sortPoints bool) []br.BooleanVector {
 	var wg sync.WaitGroup
 	wg.Add(len(mtps) - 1)
 	nu := make([]int, len(mtps))
-	fmt.Println(len(mtps))
 	for i := 1; i < len(mtps); i++ {
 		go func(index int) {
 			vars := len(mtps[index])
@@ -490,4 +524,173 @@ func ComputeMFPs(mtps []br.BooleanVector, sortPoints bool) []br.BooleanVector {
 	// now wait until all points were added to res
 	<-done
 	return res
+}
+
+// FormulateLP will formulate the linear program to solve.
+// It will set the following constraings:
+// 1. All variables must be of type int (note that this is really bad for
+// the runtime of lpsolve)
+// 2. For each minimal true point (a1, ..., ak) where ai are the variables
+// that are true a constraint that says that the sum of
+// all variables must be ≥ the degree
+// that is we transform the problem a bit and get:
+// a1 + ... + ak ≥ d ⇔ a1 + ... + ak -d ≥ 0
+// 3. For each maximal false point (a1, ..., ak) where are ai are the variables
+// that are true a constraint that says that the sum of all variables
+// must be < the degree:
+// a1 + ... + ak < d
+// because lpsolve only allows ≤ we transform this to
+// a1 + ... + ak ≤ d - 1 ⇔ a1 + ... + ak -  ≤ -1
+//
+// The additional constraints depend on the mode:
+// If mode is TightenNeighbours we compare all variables w(i) and w(i+1).
+// We know that it must always hold that w(i) ≥ w(i+1), but it could also
+// be w(i) = w(i+1), we find that out by comparing the Winder matrix entries.
+// So we have w(i) ≥ w(i+1) ⇔ w(i) - w(i+1) >= 0 or w(i) - w(i+1) = 0.
+// TODO we can make this easily concurrent
+func FormulateLP(mtps, mfps []br.BooleanVector, nbvar int, winder br.WinderMatrix, tighten TightenMode) (*golp.LP, error) {
+	// go uses zero based ids, so all variables have ids between 0 and nbvar -1
+	// the degree has id nbvar
+	degreeID := nbvar
+	lp := golp.NewLP(0, nbvar+1)
+	// set int constraing on all variables
+	for column := 0; column < nbvar+1; column++ {
+		lp.SetInt(column, true)
+	}
+	for _, mtp := range mtps {
+		// now add the constraint
+		row := make([]golp.Entry, 0, nbvar+1)
+		for j, val := range mtp {
+			if val {
+				row = append(row, golp.Entry{Col: j, Val: 1})
+			}
+		}
+		// add -d
+		row = append(row, golp.Entry{Col: degreeID, Val: -1})
+		// add the row
+		if err := lp.AddConstraintSparse(row, golp.GE, 0); err != nil {
+			return nil, err
+		}
+	}
+	for _, mfp := range mfps {
+		row := make([]golp.Entry, 0, nbvar+1)
+		for j, val := range mfp {
+			if val {
+				row = append(row, golp.Entry{Col: j, Val: 1})
+			}
+		}
+		// add -d
+		row = append(row, golp.Entry{Col: degreeID, Val: -1})
+		if err := lp.AddConstraintSparse(row, golp.LE, -1); err != nil {
+			return nil, err
+		}
+	}
+	// now we add additional constraints, depending on the mode
+	switch {
+	case tighten == TightenNeighbours:
+		// add a constraint for neighbouring variables
+		// we already know that w(i) ≥ w(i+1), but we could already conclude
+		// that they must be equal
+		entry1 := golp.Entry{Col: -1, Val: 1}
+		entry2 := golp.Entry{Col: -1, Val: -1}
+		for i := 1; i < nbvar; i++ {
+			// compare both rows
+			compRes := br.CompareMatrixEntry(winder[i-1], winder[i])
+			var constraint golp.ConstraintType = golp.GE
+
+			if debug {
+				if compRes < 0 {
+					panic("Unsorted Winder matrix in FormulateLP")
+				}
+			}
+
+			if compRes == 0 {
+				constraint = golp.EQ
+			}
+			// now update the row and add the constraint
+			entry1.Col = i - 1
+			entry2.Col = i
+			if err := lp.AddConstraintSparse([]golp.Entry{entry1, entry2}, constraint, 0); err != nil {
+				return nil, err
+			}
+		}
+	case tighten == TightenAll && nbvar > 0:
+		// first we will compare each entry i with i+1 and save the comparison
+		// result between i and i + 1
+		// we make use of the transitivity of the comparison and later we don't
+		// have to compare matrix rows again.
+		// To add all pairs between i and j where i < j we simply have to lookup
+		// the precomputed results: as long as the comparison result is = the
+		// variables must be equal, after that only ≥
+		// TODO would be nice if someone checked this... really confusing
+		// with all this index stuff ;)
+
+		precomputed := make([]int, nbvar-1)
+		for i := 1; i < nbvar; i++ {
+			compRes := br.CompareMatrixEntry(winder[i-1], winder[i])
+
+			if debug {
+				if compRes < 0 {
+					panic("Unsorted Winder matrix in FormulateLP")
+				}
+			}
+
+			precomputed[i-1] = compRes
+		}
+		entry1 := golp.Entry{Col: -1, Val: 1}
+		entry2 := golp.Entry{Col: -1, Val: -1}
+		// now add all variable pair results
+		for i := 0; i < nbvar; i++ {
+			entry1.Col = i
+			// first find the longest sequence s.t. the variables are equal
+			j := i + 1
+			// loop as long as j is equivalent to its predecessor
+			// as long as this is the case i is equal to j
+			for ; j < nbvar && precomputed[j-1] == 0; j++ {
+				// add eq constraing
+				entry2.Col = j
+				if err := lp.AddConstraintSparse([]golp.Entry{entry1, entry2}, golp.EQ, 0); err != nil {
+					return nil, err
+				}
+			}
+			// for all remaining j simply add ≥ constraint
+			for ; j < nbvar; j++ {
+				entry2.Col = j
+				if err := lp.AddConstraintSparse([]golp.Entry{entry1, entry2}, golp.GE, 0); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	// TODO some objective must be set
+	// I only came up with this, however this will also keep the Coefficients
+	// small...
+	obj := make([]float64, nbvar+1)
+	for i := 0; i < nbvar+1; i++ {
+		obj[i] = 1.0
+	}
+	lp.SetObjFn(obj)
+	return lp, nil
+}
+
+// TODO only call if there is at least one variable
+func SolveLP(lp *golp.LP) (*LPB, error) {
+	lp.SetVerboseLevel(golp.CRITICAL)
+	convRes := lp.Solve()
+	// TODO I've added suboptiomal, this should be ok as well?
+	// TODO seems the constants in golp are wrong...
+	// we should use them but it's broken :(
+	if convRes != 0 && convRes != 1 {
+		return nil, fmt.Errorf("Can't solve linear program, lpsolve solution type is %v", convRes)
+	}
+	vars := lp.Variables()
+	coeffs := make([]LPBCoeff, len(vars)-1)
+	for i, asFloat := range vars[:len(vars)-1] {
+		// just to be sure
+		asFloat = math.Floor(asFloat)
+		coeff := LPBCoeff(asFloat)
+		coeffs[i] = coeff
+	}
+	threshold := LPBCoeff(vars[len(vars)-1])
+	return NewLPB(threshold, coeffs), nil
 }
