@@ -666,9 +666,10 @@ func FormulateLP(mtps, mfps []br.BooleanVector, nbvar int, winder br.WinderMatri
 	// I only came up with this, however this will also keep the Coefficients
 	// small...
 	obj := make([]float64, nbvar+1)
-	for i := 0; i < nbvar+1; i++ {
-		obj[i] = 1.0
-	}
+	// for i := 0; i < nbvar+1; i++ {
+	// 	obj[i] = 1.0
+	// }
+	obj[0] = 0.0
 	lp.SetObjFn(obj)
 	return lp, nil
 }
