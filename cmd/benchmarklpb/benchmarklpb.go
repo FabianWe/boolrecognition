@@ -57,6 +57,8 @@ func main() {
 	switch *solverType {
 	case "minComb":
 		converter = lpb.NewCombinatorialSolver(lpb.NewMinSolver())
+		fmt.Println("Using combinatorial solver with minimum chooser")
+		fmt.Println()
 	case "lp":
 		switch *tightenFlag {
 		case "none":
@@ -69,6 +71,8 @@ func main() {
 			os.Exit(1)
 		}
 		converter = lpb.NewLPSolver(tighten)
+		fmt.Println("Using linear program solver with tighten option", *tightenFlag)
+		fmt.Println()
 	default:
 		fmt.Fprintln(os.Stderr, "Only \"minComb\" and \"lp\" are valid solvers, got", *solverType)
 		os.Exit(1)
