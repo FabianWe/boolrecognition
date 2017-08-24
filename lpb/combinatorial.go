@@ -144,7 +144,6 @@ func (n *GenericSplitNode) SetAlreadySplit(val bool) {
 	n.AlreadySplit = val
 }
 
-// TODO remove methods we don't need!
 type SplitNode interface {
 	Split(symmetryTest, cut bool) error
 
@@ -158,15 +157,12 @@ type SplitNode interface {
 	GetUpperChild() SplitNode
 	SetUpperChild(node SplitNode)
 	GetPhi() br.ClauseSet //
-	SetPhi(phi br.ClauseSet)
 	GetColumn() int       //
 	SetColumn(column int) //
 	GetRow() int
 	SetRow(row int)
-	GetContext() *TreeContext //
-	SetContext(context *TreeContext)
+	GetContext() *TreeContext          //
 	GetPatterns() []*OccurrencePattern //
-	SetPatterns(patterns []*OccurrencePattern)
 	IsAlreadySplit() bool
 	SetAlreadySplit(val bool)
 }
