@@ -321,9 +321,9 @@ type LinearProgram struct {
 // and variables start with 0).
 // Also each variable should appear at least once in the DNF, what happens
 // otherwise is not tested yet.
-func NewLinearProgram(phi br.ClauseSet, nbvar int, sortMatrix, sortClauses, regTest bool) *LinearProgram {
+func NewLinearProgram(phi br.ClauseSet, nbvar int, sortMatrix, sortClauses bool) *LinearProgram {
 	tree := NewDNFTree(nbvar)
-	newDNF, winder, renaming, reverseRenaming := initLP(phi, nbvar, sortMatrix)
+	newDNF, winder, renaming, reverseRenaming := InitLP(phi, nbvar, sortMatrix)
 	if sortMatrix || sortClauses {
 		newDNF.SortAll()
 	}
@@ -346,7 +346,7 @@ func NewLinearProgram(phi br.ClauseSet, nbvar int, sortMatrix, sortClauses, regT
 	}
 }
 
-// initLP initializes the lp, that is it creates the Winder matrix for
+// InitLP initializes the lp, that is it creates the Winder matrix for
 // (the renamed) ϕ.
 // It will also compute Renaming and ReverseRenaming as discussed in
 // NewLinearProgram.
@@ -354,7 +354,7 @@ func NewLinearProgram(phi br.ClauseSet, nbvar int, sortMatrix, sortClauses, regT
 // It returns first the renamedDNF, the Winder matrix, then Renaming and then
 // ReverseRenaming.
 // If sortMatrix is false the old dnf will be returned.
-func initLP(phi br.ClauseSet, nbvar int, sortMatrix bool) (br.ClauseSet, br.WinderMatrix, []int, []int) {
+func InitLP(phi br.ClauseSet, nbvar int, sortMatrix bool) (br.ClauseSet, br.WinderMatrix, []int, []int) {
 	newDNF := phi
 	var renaming, reverseRenaming []int = nil, nil
 	winder := br.NewWinderMatrix(phi, nbvar, true)
@@ -694,4 +694,47 @@ func SolveLP(lp *golp.LP) (*LPB, error) {
 	}
 	threshold := LPBCoeff(vars[len(vars)-1])
 	return NewLPB(threshold, coeffs), nil
+}
+
+// LPSolver implements the DNFToLPB interface by using the linear programming
+// algorithm.
+//
+// Ther are some options you can change, see NewLPSolver, NewLinearProgram and
+// NewLinearProgram.Solve for more details.
+//
+// It will also rename the variables in the LPB again, that is if the variables
+// were renamed for our algorithm to work it will rename the resulting LPB
+// correctly.
+type LPSolver struct {
+	SortMatrix, SortClauses, RegTest bool
+	Tighten                          TightenMode
+}
+
+// NewLPSolver returns a new LPSolver with SortMatrix, SortClauses and RegTest
+// set to true.
+//
+// For details of these variables see NewLinearProgram and LinearProgram.Solve
+// for more details.
+//
+// tighten describes how many additional constraints should be added to the
+// lp, see TightenMode documentation for more details.
+func NewLPSolver(tighten TightenMode) *LPSolver {
+	return &LPSolver{SortMatrix: true,
+		SortClauses: true,
+		RegTest:     true,
+		Tighten:     tighten,
+	}
+}
+
+// Convert does everything required to compute the LPB: It sets up the program
+// and tries to solve it.
+// It will also undo the renaming if required.
+func (s *LPSolver) Convert(phi br.ClauseSet, nbvar int) (*LPB, error) {
+	lp := NewLinearProgram(phi, nbvar, s.SortMatrix, s.SortClauses)
+	res, err := lp.Solve(s.Tighten, s.RegTest)
+	if err != nil {
+		return nil, err
+	}
+	// undo renaming
+	return res.Rename(lp.ReverseRenaming), nil
 }

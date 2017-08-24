@@ -809,12 +809,52 @@ type TreeSolver interface {
 	Solve(t *SplittingTree) (*LPB, error)
 }
 
+// CombinatorialSolver implements the DNFToLPB interface by using the
+// combinatorial algorithm as proposed by Smaus.
+//
+// It depends on a TreeSolver instance that "solves" the constructed tree,
+// i.e. transforms a fully built tree to an LPB.
+//
+// There are some options you may want to change, see the documentation of
+// NewCombinatorialSolver and NewSplittingTree for details.
+//
+// It will also rename the variables in the LPB again, that is if the variables
+// were renamed for our algorithm to work it will rename the resulting LPB
+// correctly.
 type CombinatorialSolver struct {
-	solver TreeSolver
+	TSolver                                 TreeSolver
+	SortPatterns, SortClauses, Cut, SymTest bool
 }
 
-// TODO implement the Solve method... rename variables again if required
-// bla bla bla
+// NewCombinatorialSolver returns a new combinatorial solver given the
+// tree solver.
+//
+// It sets SortPatterns, SortClauses, Cut and SymTest to true, if that's
+// not what you want just change it after creating the solver.
+// For details of these variables see NewSplittingTree were the options are
+// discussed in more detail.
+func NewCombinatorialSolver(tSolver TreeSolver) *CombinatorialSolver {
+	return &CombinatorialSolver{TSolver: tSolver,
+		SortPatterns: true,
+		SortClauses:  true,
+		Cut:          true,
+		SymTest:      true,
+	}
+}
+
+// Convert does everything required to compute the LPB: Create the tree,
+// start the tree solver and rename the variables if required.
+func (s *CombinatorialSolver) Convert(phi br.ClauseSet, nbvar int) (*LPB, error) {
+	tree := NewSplittingTree(phi, nbvar, s.SortPatterns, s.SortClauses)
+	tree.Cut = s.Cut
+	tree.SymTest = s.SymTest
+	res, err := s.TSolver.Solve(tree)
+	if err != nil {
+		return nil, err
+	}
+	// undo the renaming
+	return res.Rename(tree.ReverseRenaming), nil
+}
 
 // SolverState provides the solver with certain information about the current
 // search space, like current coefficients and so on.

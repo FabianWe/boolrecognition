@@ -356,6 +356,21 @@ func (lpb *LPB) ToDNF() br.ClauseSet {
 	return res
 }
 
+// TODO test me
+// TODO doc me
+func (lpb *LPB) Rename(reverseRenaming []int) *LPB {
+	newCoeffs := make([]LPBCoeff, len(lpb.Coefficients))
+	if reverseRenaming == nil {
+		// just copy the whole LPB, no renaming was done
+		copy(newCoeffs, lpb.Coefficients)
+	} else {
+		for i, coeff := range lpb.Coefficients {
+			newCoeffs[reverseRenaming[i]] = coeff
+		}
+	}
+	return NewLPB(lpb.Threshold, newCoeffs)
+}
+
 // DNFToLPB is an interface that provides a single method Convert.
 // This method creates a DNF representation from a DNF ϕ.
 // Note that some solvers might have restrictions on how the DNF must be
