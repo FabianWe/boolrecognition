@@ -1,3 +1,6 @@
+cmd/benchmarklpb/benchmarklpb
+cmd/playground/playground
+
 # Binaries for programs and plugins
 *.exe
 *.dll
