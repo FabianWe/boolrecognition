@@ -15,6 +15,35 @@
 // Just for playing around a bit and testing stuff.
 package main
 
-func main() {
+import (
+	"fmt"
+	"os"
+	"path/filepath"
 
+	br "github.com/FabianWe/boolrecognition"
+	"github.com/FabianWe/boolrecognition/lpb"
+)
+
+func main() {
+	wenzelmannDNF := readDNFFile("wenzelmann.dnf")
+	lp := lpb.NewLinearProgram(wenzelmannDNF, 5, true, true)
+	computed, err := lp.Solve(lpb.TightenNone, true)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(computed)
+}
+
+// Reads a file from the "dnfs" subdirectory, panics on error
+func readDNFFile(filename string) br.ClauseSet {
+	f, fErr := os.Open(filepath.Join("dnfs", filename))
+	if fErr != nil {
+		panic(fErr)
+	}
+	defer f.Close()
+	_, _, phi, err := br.ParsePositiveDIMACS(f)
+	if err != nil {
+		panic(err)
+	}
+	return phi
 }

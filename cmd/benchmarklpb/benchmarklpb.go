@@ -38,6 +38,15 @@ func iterativeAverage(t int, value, current float64) float64 {
 	return (float64(t)/float64(t+1))*current + (1.0/float64(t+1))*value
 }
 
+type foo int
+
+const (
+	a foo = -2
+	b
+	c = iota
+	d
+)
+
 func main() {
 	tighten := lpb.TightenNone
 	lpbFileFlag := flag.String("lpb", "", "Path to the lpb file")
