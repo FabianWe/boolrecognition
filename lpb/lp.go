@@ -681,7 +681,7 @@ func SolveLP(lp *golp.LP) (*LPB, error) {
 	// TODO I've added suboptiomal, this should be ok as well?
 	// TODO seems the constants in golp are wrong...
 	// we should use them but it's broken :(
-	if convRes != 0 && convRes != 1 {
+	if convRes != golp.OPTIMAL && convRes != golp.SUBOPTIMAL {
 		return nil, fmt.Errorf("Can't solve linear program, lpsolve solution type is %v", convRes)
 	}
 	vars := lp.Variables()
